@@ -53,9 +53,11 @@ import {
   applyCalibrationAdjustments,
   blendWithMarket,
   deriveConfidence,
+  fixBttsScoreCoherence,
   fixScoreCoherence,
   pickOutcome,
   poissonMatchPrediction,
+  resolvePredictedScore,
 } from "./poisson-model";
 
 async function teamRoster(leagueSlug: string, teamId: string) {
@@ -553,7 +555,6 @@ function buildStatisticalPrediction(input: {
   ({ homeWinPct, drawPct, awayWinPct } = pro.probs);
 
   const outcome = pickOutcome(homeWinPct, drawPct, awayWinPct);
-  predictedScore = fixScoreCoherence(predictedScore, homeWinPct, drawPct, awayWinPct);
 
   let confidence = deriveConfidence(homeWinPct, drawPct, awayWinPct);
 
@@ -628,6 +629,15 @@ function buildStatisticalPrediction(input: {
     awayName,
   });
   const bttsCall = btts.call;
+
+  predictedScore = resolvePredictedScore({
+    matrix: poisson.matrix,
+    homeWinPct,
+    drawPct,
+    awayWinPct,
+    bttsCall,
+    fallbackScore: predictedScore,
+  });
 
   const lineupNotes =
     lineups.released && (missingHome.length || missingAway.length)
@@ -1144,6 +1154,13 @@ Matchdata:\n${JSON.stringify(context, null, 2)}\n\nGe en betting-analys. Var ext
     // BTTS alltid från statistikmodellen — samma som enskild match & dagens tips
     parsed.bttsCall = statBaseline.bttsCall;
     parsed.bttsReason = statBaseline.bttsReason;
+    parsed.predictedScore = fixBttsScoreCoherence(
+      parsed.predictedScore,
+      parsed.bttsCall,
+      parsed.homeWinPct,
+      parsed.drawPct,
+      parsed.awayWinPct,
+    );
 
     // Spara tipset för framtida lärande (best-effort).
     savePrediction({

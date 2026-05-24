@@ -40,7 +40,7 @@ describe("btts-model", () => {
     expect(["ja", "nej", "osäker"]).toContain(result.call);
     expect(result.pct).toBeGreaterThanOrEqual(8);
     expect(result.pct).toBeLessThanOrEqual(92);
-    expect(result.reason).toMatch(/^BTTS /);
+    expect(result.reason).toMatch(/^BTTS .+ \(båda gör mål \d+%, /);
   });
 
   it("predictBtts sänker BTTS vid högt absenceScore", () => {

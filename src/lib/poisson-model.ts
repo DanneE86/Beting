@@ -170,6 +170,97 @@ export function fixScoreCoherence(
   return `${lo}-${Math.max(hi, lo + 1)}`;
 }
 
+/** Mest sannolika ställning givet utfall och BTTS-krav. */
+export function mostLikelyScoreWithBtts(
+  P: number[][],
+  outcome: Outcome,
+  bttsCall: "ja" | "nej",
+): string | null {
+  let bestI = -1;
+  let bestJ = -1;
+  let bestP = -1;
+  for (let i = 0; i < P.length; i++) {
+    for (let j = 0; j < (P[i]?.length ?? 0); j++) {
+      const cellOutcome: Outcome = i > j ? "H" : i < j ? "A" : "D";
+      if (cellOutcome !== outcome) continue;
+      const bothScored = i > 0 && j > 0;
+      if (bttsCall === "nej" && bothScored) continue;
+      if (bttsCall === "ja" && !bothScored) continue;
+      if (P[i][j] > bestP) {
+        bestP = P[i][j];
+        bestI = i;
+        bestJ = j;
+      }
+    }
+  }
+  if (bestP < 0) return null;
+  return `${bestI}-${bestJ}`;
+}
+
+/** Justera ställning så den matchar BTTS-tipset (fallback utan matris). */
+export function fixBttsScoreCoherence(
+  predictedScore: string,
+  bttsCall: "ja" | "nej" | "osäker",
+  homeWinPct: number,
+  drawPct: number,
+  awayWinPct: number,
+): string {
+  if (bttsCall === "osäker") return predictedScore;
+  const scoreMatch = predictedScore?.match(/(\d+)\s*[-–:]\s*(\d+)/);
+  if (!scoreMatch) return predictedScore;
+  const h = Number(scoreMatch[1]);
+  const a = Number(scoreMatch[2]);
+  const bothScored = h > 0 && a > 0;
+  const picked = pickOutcome(homeWinPct, drawPct, awayWinPct);
+
+  if (bttsCall === "nej" && bothScored) {
+    if (picked === "D") return "0-0";
+    if (picked === "H") return `${Math.max(h, 1)}-0`;
+    return `0-${Math.max(a, 1)}`;
+  }
+  if (bttsCall === "ja" && !bothScored) {
+    if (picked === "D") return "1-1";
+    if (picked === "H") {
+      const nh = Math.max(h, 1);
+      const na = Math.max(a, 1);
+      return na >= nh ? `${nh + 1}-${na}` : `${nh}-${na}`;
+    }
+    const nh = Math.max(h, 1);
+    const na = Math.max(a, 1);
+    return na <= nh ? `${nh}-${na + 1}` : `${nh}-${na}`;
+  }
+  return predictedScore;
+}
+
+/** Slutlig ställning: 1X2-utfall + BTTS-koherens via Poisson-matris. */
+export function resolvePredictedScore(input: {
+  matrix: number[][];
+  homeWinPct: number;
+  drawPct: number;
+  awayWinPct: number;
+  bttsCall: "ja" | "nej" | "osäker";
+  fallbackScore?: string;
+}): string {
+  const { matrix, homeWinPct, drawPct, awayWinPct, bttsCall, fallbackScore } = input;
+  const outcome = pickOutcome(homeWinPct, drawPct, awayWinPct);
+
+  if (matrix.length > 0) {
+    if (bttsCall === "osäker") {
+      return mostLikelyScore(matrix, outcome);
+    }
+    const fromMatrix = mostLikelyScoreWithBtts(matrix, outcome, bttsCall);
+    if (fromMatrix) return fromMatrix;
+  }
+
+  const base = fixScoreCoherence(
+    fallbackScore ?? (matrix.length > 0 ? mostLikelyScore(matrix, outcome) : "1-1"),
+    homeWinPct,
+    drawPct,
+    awayWinPct,
+  );
+  return fixBttsScoreCoherence(base, bttsCall, homeWinPct, drawPct, awayWinPct);
+}
+
 /** Blanda modell och marknad (Egidi et al. 2018 — konvex kombination). */
 export function blendWithMarket(
   model: MatchProbs,

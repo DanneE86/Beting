@@ -182,7 +182,7 @@ export function predictBtts(input: {
   if (absPenalty > 0) parts.push(`avbräck −${absPenalty.toFixed(0)}%`);
 
   const callSv = call === "ja" ? "Ja" : call === "nej" ? "Nej" : "Osäker";
-  const reason = `BTTS ${callSv} (${pct.toFixed(0)}%, ${confidence} säkerhet): ${parts.join(" · ")}.`;
+  const reason = `BTTS ${callSv} (båda gör mål ${pct.toFixed(0)}%, ${confidence} säkerhet): ${parts.join(" · ")}.`;
 
   return { pct, call, reason, confidence };
 }
