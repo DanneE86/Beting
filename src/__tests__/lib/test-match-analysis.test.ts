@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   aggregateH2H,
+  buildBttsAnalysisSection,
   buildTemplateMatchAnalysis,
   scoringProfile,
   venueRecord,
@@ -62,6 +63,34 @@ describe("match-analysis", () => {
     expect(h2h?.bttsPct).toBe(100);
   });
 
+  it("buildBttsAnalysisSection ger fallback från tabell när form saknas", () => {
+    const checklist = {
+      homeLast6: [],
+      awayLast6: [],
+      homeAtHome: venueRecord([], "home"),
+      awayOnRoad: venueRecord([], "away"),
+      homeScoringProfile: "okänd" as const,
+      awayScoringProfile: "okänd" as const,
+      homeFavoriteRecord: null,
+      awayAwayVsTop: null,
+      h2hAggregate: null,
+      eventMeta: null,
+    };
+    const text = buildBttsAnalysisSection({
+      homeName: "Hemma",
+      awayName: "Borta",
+      checklist,
+      homeGoalStats: null,
+      awayGoalStats: null,
+      homeStanding: { played: 10, gf: 18, ga: 12 },
+      awayStanding: { played: 10, gf: 16, ga: 14 },
+      bttsCall: "ja",
+      bttsReason: "Ja ~58% (Poisson + form).",
+    });
+    expect(text.length).toBeGreaterThan(20);
+    expect(text).toMatch(/Säsongssnitt|Modell|BTTS ja/i);
+  });
+
   it("buildTemplateMatchAnalysis fyller alla avsnitt", () => {
     const checklist = {
       homeLast6: [],
@@ -83,7 +112,7 @@ describe("match-analysis", () => {
       awayGoalStats: computeGoalStats(sample),
     });
     expect(sections.grundlaggande.length).toBeGreaterThan(10);
-    expect(sections.btts).toBeTruthy();
+    expect(sections.btts.length).toBeGreaterThan(10);
     expect(sections.oneXtwo).toBeTruthy();
     expect(sections.h2h).toBeTruthy();
     expect(sections.lagnyheter).toBeTruthy();

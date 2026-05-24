@@ -60,8 +60,10 @@ import {
   resolvePredictedScore,
 } from "./poisson-model";
 import {
+  buildBttsAnalysisSection,
   buildPreMatchChecklistData,
   buildTemplateMatchAnalysis,
+  ensureMatchAnalysisBtts,
   fetchEventMeta,
   type MatchAnalysisSections,
 } from "./match-analysis";
@@ -672,11 +674,25 @@ function buildStatisticalPrediction(input: {
         homeGoalStats,
         awayGoalStats,
         homeStanding: homeStanding
-          ? { rank: homeStanding.rank, pts: homeStanding.pts, gf: homeStanding.gf, ga: homeStanding.ga }
+          ? {
+              rank: homeStanding.rank,
+              pts: homeStanding.pts,
+              gf: homeStanding.gf,
+              ga: homeStanding.ga,
+              played: homeStanding.played,
+            }
           : undefined,
         awayStanding: awayStanding
-          ? { rank: awayStanding.rank, pts: awayStanding.pts, gf: awayStanding.gf, ga: awayStanding.ga }
+          ? {
+              rank: awayStanding.rank,
+              pts: awayStanding.pts,
+              gf: awayStanding.gf,
+              ga: awayStanding.ga,
+              played: awayStanding.played,
+            }
           : undefined,
+        bttsCall,
+        bttsReason: btts.reason,
         seasonContext: seasonContext
           ? {
               home: { stakeLabel: seasonContext.home.stakeLabel, rank: seasonContext.home.rank },
@@ -1263,6 +1279,24 @@ Matchdata:\n${JSON.stringify(context, null, 2)}\n\nGe en betting-analys med ifyl
     parsed.bttsReason = statBaseline.bttsReason;
     if (!parsed.matchAnalysis && statBaseline.matchAnalysis) {
       parsed.matchAnalysis = statBaseline.matchAnalysis;
+    }
+    if (parsed.matchAnalysis && preMatchChecklist) {
+      const bttsFallback = buildBttsAnalysisSection({
+        homeName: data.homeName,
+        awayName: data.awayName,
+        checklist: preMatchChecklist,
+        homeGoalStats,
+        awayGoalStats,
+        homeStanding: homeStanding?.played
+          ? { played: homeStanding.played, gf: homeStanding.gf, ga: homeStanding.ga }
+          : undefined,
+        awayStanding: awayStanding?.played
+          ? { played: awayStanding.played, gf: awayStanding.gf, ga: awayStanding.ga }
+          : undefined,
+        bttsCall: parsed.bttsCall,
+        bttsReason: parsed.bttsReason,
+      });
+      parsed.matchAnalysis = ensureMatchAnalysisBtts(parsed.matchAnalysis, bttsFallback);
     }
     parsed.predictedScore = fixBttsScoreCoherence(
       parsed.predictedScore,

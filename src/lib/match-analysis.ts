@@ -349,14 +349,99 @@ export function buildPreMatchChecklistData(input: {
   };
 }
 
+/** BTTS-avsnitt med fallback när ESPN-form saknas (tabell, modell, H2H). */
+export function buildBttsAnalysisSection(input: {
+  homeName: string;
+  awayName: string;
+  checklist: PreMatchChecklistData;
+  homeGoalStats: GoalTrendStats | null;
+  awayGoalStats: GoalTrendStats | null;
+  homeStanding?: { played: number; gf: number; ga: number };
+  awayStanding?: { played: number; gf: number; ga: number };
+  bttsCall?: "ja" | "nej" | "osäker";
+  bttsReason?: string;
+}): string {
+  const { homeName, awayName, checklist: c, homeGoalStats, awayGoalStats } = input;
+  const parts: string[] = [];
+
+  if (homeGoalStats) {
+    parts.push(
+      `${homeName} BTTS ${homeGoalStats.bttsPct}% (senaste 10), nolla ${homeGoalStats.cleanSheets} matcher, missat mål ${homeGoalStats.failedToScore}`,
+    );
+  }
+  if (awayGoalStats) {
+    parts.push(
+      `${awayName} BTTS ${awayGoalStats.bttsPct}% (senaste 10), nolla ${awayGoalStats.cleanSheets} matcher, missat mål ${awayGoalStats.failedToScore}`,
+    );
+  }
+  if (c.homeAtHome.bttsPct != null && c.homeAtHome.played > 0) {
+    parts.push(`${homeName} hemma BTTS ${c.homeAtHome.bttsPct}% (${c.homeAtHome.played} matcher)`);
+  }
+  if (c.awayOnRoad.bttsPct != null && c.awayOnRoad.played > 0) {
+    parts.push(`${awayName} borta BTTS ${c.awayOnRoad.bttsPct}% (${c.awayOnRoad.played} matcher)`);
+  }
+  if (c.homeAtHome.cleanSheetPct != null && c.homeAtHome.played > 0) {
+    parts.push(
+      `Nolla hemma ${c.homeAtHome.cleanSheetPct}% · borta ${c.awayOnRoad.cleanSheetPct ?? "—"}%`,
+    );
+  }
+
+  const hs = input.homeStanding;
+  const as = input.awayStanding;
+  if (hs && as && hs.played >= 3 && as.played >= 3) {
+    const hGf = Math.round((hs.gf / hs.played) * 100) / 100;
+    const hGa = Math.round((hs.ga / hs.played) * 100) / 100;
+    const aGf = Math.round((as.gf / as.played) * 100) / 100;
+    const aGa = Math.round((as.ga / as.played) * 100) / 100;
+    parts.push(
+      `Säsongssnitt per match: ${homeName} ${hGf} gjorda / ${hGa} insläppta, ${awayName} ${aGf} gjorda / ${aGa} insläppta`,
+    );
+    const bothScoreOften = hGf >= 1.05 && aGf >= 1.05;
+    const bothConcede = hGa >= 0.95 && aGa >= 0.95;
+    if (bothScoreOften && bothConcede) {
+      parts.push("Tabellbilden talar för att båda lagen ofta gör och släpper in mål (BTTS-vänligt).");
+    } else if (!bothScoreOften || (hGa < 0.75 && aGa < 0.75)) {
+      parts.push("Tabellbilden är mer defensiv eller ojämn — BTTS mindre given.");
+    }
+  }
+
+  if (c.h2hAggregate?.bttsPct != null && c.h2hAggregate.meetings > 0) {
+    parts.push(
+      `Inbördes BTTS ${c.h2hAggregate.bttsPct}% (${c.h2hAggregate.meetings} möten, snitt ${c.h2hAggregate.avgTotalGoals ?? "—"} mål).`,
+    );
+  }
+
+  if (input.bttsReason?.trim()) {
+    parts.push(`Modell: ${input.bttsReason.trim()}`);
+  }
+  if (input.bttsCall) {
+    parts.push(`Bedömning: BTTS ${input.bttsCall}.`);
+  }
+
+  if (parts.length) return parts.join(". ");
+
+  return (
+    "Begränsad senaste-form i ESPN — BTTS bedöms via modellens målförväntan och ligasnitt. " +
+    "Komplettera med skador och startelvor närmare avspark."
+  );
+}
+
+export function ensureMatchAnalysisBtts(
+  sections: MatchAnalysisSections,
+  fallback: string,
+): MatchAnalysisSections {
+  if (sections.btts?.trim()) return sections;
+  return { ...sections, btts: fallback };
+}
+
 export function buildTemplateMatchAnalysis(input: {
   homeName: string;
   awayName: string;
   checklist: PreMatchChecklistData;
   homeGoalStats: GoalTrendStats | null;
   awayGoalStats: GoalTrendStats | null;
-  homeStanding?: { rank: number; pts: number; gf: number; ga: number };
-  awayStanding?: { rank: number; pts: number; gf: number; ga: number };
+  homeStanding?: { rank: number; pts: number; gf: number; ga: number; played?: number };
+  awayStanding?: { rank: number; pts: number; gf: number; ga: number; played?: number };
   seasonContext?: {
     home: { stakeLabel: string; rank: number };
     away: { stakeLabel: string; rank: number };
@@ -372,6 +457,8 @@ export function buildTemplateMatchAnalysis(input: {
   keyAbsencesHome?: string[];
   keyAbsencesAway?: string[];
   lineupReleased?: boolean;
+  bttsCall?: "ja" | "nej" | "osäker";
+  bttsReason?: string;
 }): MatchAnalysisSections {
   const {
     homeName,
@@ -407,21 +494,31 @@ export function buildTemplateMatchAnalysis(input: {
     .filter(Boolean)
     .join(" ");
 
-  const btts = [
-    homeGoalStats
-      ? `${homeName} BTTS ${homeGoalStats.bttsPct}% (senaste 10), nolla ${homeGoalStats.cleanSheets} matcher, missat mål ${homeGoalStats.failedToScore}`
-      : null,
-    awayGoalStats
-      ? `${awayName} BTTS ${awayGoalStats.bttsPct}% (senaste 10), nolla ${awayGoalStats.cleanSheets} matcher, missat mål ${awayGoalStats.failedToScore}`
-      : null,
-    c.homeAtHome.bttsPct != null ? `${homeName} hemma BTTS ${c.homeAtHome.bttsPct}%` : null,
-    c.awayOnRoad.bttsPct != null ? `${awayName} borta BTTS ${c.awayOnRoad.bttsPct}%` : null,
-    c.homeAtHome.cleanSheetPct != null
-      ? `Hemma nolla ${c.homeAtHome.cleanSheetPct}% · borta nolla ${c.awayOnRoad.cleanSheetPct ?? "—"}%`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(". ");
+  const btts = buildBttsAnalysisSection({
+    homeName,
+    awayName,
+    checklist: c,
+    homeGoalStats,
+    awayGoalStats,
+    homeStanding:
+      homeStanding && (homeStanding.played ?? 0) >= 3
+        ? {
+            played: homeStanding.played!,
+            gf: homeStanding.gf,
+            ga: homeStanding.ga,
+          }
+        : undefined,
+    awayStanding:
+      awayStanding && (awayStanding.played ?? 0) >= 3
+        ? {
+            played: awayStanding.played!,
+            gf: awayStanding.gf,
+            ga: awayStanding.ga,
+          }
+        : undefined,
+    bttsCall: input.bttsCall,
+    bttsReason: input.bttsReason,
+  });
 
   const oneXtwo = [
     homeStanding && awayStanding
