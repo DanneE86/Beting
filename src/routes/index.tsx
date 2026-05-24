@@ -1749,7 +1749,16 @@ function TodayTipsTab() {
 
 
   if (q.isLoading) return <Skeleton className="h-64" />;
+  if (q.isError) {
+    return (
+      <EmptyState
+        text={`Kunde inte ladda dagens tips: ${q.error instanceof Error ? q.error.message : "Okänt fel"}. Försök ladda om sidan.`}
+      />
+    );
+  }
   const items = q.data?.items ?? [];
+  const supabaseAvailable = q.data?.supabaseAvailable !== false;
+  const scoreboardCount = q.data?.scoreboardCount ?? 0;
 
   // Gruppera per liga, sedan per omgång (senaste först).
   type Item = (typeof items)[number];
@@ -1831,8 +1840,21 @@ function TodayTipsTab() {
         </div>
       </div>
 
+      {!supabaseAvailable && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+          Supabase är inte konfigurerad (saknar <code className="text-amber-100">SUPABASE_SERVICE_ROLE_KEY</code>).
+          Matcher från ESPN visas, men sparade tips och AI-prognoser kräver nyckeln i .env eller deploy-miljön.
+        </div>
+      )}
+
       {items.length === 0 && (
-        <EmptyState text="Inga tips för matcher inom 24h. Klicka 'AI-prognos alla matcher' för att generera." />
+        <EmptyState
+          text={
+            scoreboardCount === 0
+              ? "Inga matcher inom 24h hittades i ESPN just nu."
+              : "Inga tips för matcher inom 24h. Klicka 'AI-prognos alla matcher' för att generera."
+          }
+        />
       )}
 
       {leagueGroups.map((lg) => {

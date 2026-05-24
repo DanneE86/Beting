@@ -18,9 +18,11 @@ import {
   filterTodayTipsRows,
   getTodayTipsWindow,
   mergeTodayTipsWithScoreboard,
+  todayTipsFromScoreboardOnly,
   TODAY_TIPS_GRACE_MS,
   TODAY_TIPS_HORIZON_MS,
 } from "./today-tips";
+import { isSupabaseAdminConfigured, withSupabaseAdmin } from "./supabase-admin";
 import {
   confidenceRank,
   emptyOutcomeBuckets,
@@ -117,26 +119,33 @@ export const getTodayTips = createServerFn({ method: "GET" })
     const now = new Date();
     const window = getTodayTipsWindow(now);
     const windowEndIso = window.windowEnd.toISOString();
+    const supabaseAvailable = isSupabaseAdminConfigured();
 
-    const [dbResult, scoreboardCandidates] = await Promise.all([
-      supabaseAdmin
-        .from("predictions")
-        .select(PREDICTION_SELECT_TODAY)
-        .in("league_id", leagueIds)
-        .is("hidden_from_today_at", null)
-        .or(`event_date.is.null,event_date.lt.${windowEndIso}`)
-        .order("event_date", { ascending: true })
-        .limit(2000),
-      fetchTodayScoreboardCandidates(now),
-    ]);
+    const scoreboardCandidates = await fetchTodayScoreboardCandidates(now);
 
-    const rows = dbResult.data ?? [];
-    const filtered = filterTodayTipsRows(rows, window, now);
+    const dbRows =
+      (await withSupabaseAdmin(async (db) => {
+        const { data, error } = await db
+          .from("predictions")
+          .select(PREDICTION_SELECT_TODAY)
+          .in("league_id", leagueIds)
+          .is("hidden_from_today_at", null)
+          .or(`event_date.is.null,event_date.lt.${windowEndIso}`)
+          .order("event_date", { ascending: true })
+          .limit(2000);
+        if (error) throw error;
+        return data ?? [];
+      })) ?? [];
+
+    const filtered = filterTodayTipsRows(dbRows, window, now);
     const sorted = [...filtered].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     );
     const deduped = dedupePredictions(sorted);
-    const items = mergeTodayTipsWithScoreboard(deduped, scoreboardCandidates);
+    const items =
+      supabaseAvailable || deduped.length > 0
+        ? mergeTodayTipsWithScoreboard(deduped, scoreboardCandidates)
+        : todayTipsFromScoreboardOnly(scoreboardCandidates);
 
     const sthlmYmd = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Europe/Stockholm",
@@ -148,6 +157,7 @@ export const getTodayTips = createServerFn({ method: "GET" })
       items,
       dateLabel: `Tips · ${sthlmYmd}`,
       scoreboardCount: scoreboardCandidates.length,
+      supabaseAvailable,
     };
   });
 

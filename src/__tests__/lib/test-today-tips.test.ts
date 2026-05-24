@@ -6,6 +6,7 @@ import {
   isWithinTodayTipsKickoff,
   mergeTodayTipsWithScoreboard,
   scoreboardToPlaceholder,
+  todayTipsFromScoreboardOnly,
   type ScoreboardCandidate,
 } from "@/lib/today-tips";
 
@@ -129,18 +130,19 @@ describe("today-tips", () => {
     expect(merged[1].predicted_outcome).toBeNull();
   });
 
-  it("scoreboardToPlaceholder skapar väntande rad", () => {
-    const row = scoreboardToPlaceholder({
-      leagueId: "swe.1",
-      homeId: "a",
-      awayId: "b",
-      homeName: "AIK",
-      awayName: "DIF",
-      round: 10,
-      utcTime: "2026-05-24T18:00:00Z",
-    });
-    expect(row.id).toMatch(/^pending-/);
-    expect(row.btts_call).toBeNull();
-    expect(row.predicted_outcome).toBeNull();
+  it("todayTipsFromScoreboardOnly skapar en rad per kandidat", () => {
+    const rows = todayTipsFromScoreboardOnly([
+      {
+        leagueId: "eng.1",
+        homeId: "1",
+        awayId: "2",
+        homeName: "Arsenal",
+        awayName: "Chelsea",
+        round: 38,
+        utcTime: "2026-05-24T19:00:00Z",
+      },
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].home_name).toBe("Arsenal");
   });
 });

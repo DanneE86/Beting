@@ -215,3 +215,10 @@ export function mergeTodayTipsWithScoreboard<
   );
   return merged;
 }
+
+/** Endast ESPN-scoreboard → placeholder-rader för Dagens tips. */
+export function todayTipsFromScoreboardOnly(
+  candidates: ScoreboardCandidate[],
+): TodayTipsPlaceholderRow[] {
+  return candidates.map(scoreboardToPlaceholder);
+}
