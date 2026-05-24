@@ -1,0 +1,1 @@
+ALTER TABLE public.predictions ADD COLUMN IF NOT EXISTS hidden_from_today_at TIMESTAMPTZ;

@@ -1,0 +1,30 @@
+{
+  "finalUrl": "https://optaplayerstats.statsperform.com/en_GB/soccer",
+  "title": "Live Scores - Soccer - Betting Showcase",
+  "apiResponses": [
+    {
+      "url": "https://v1.api.service.cmp.usercentrics.eu/latest/autoblocker/VPm_C0nNsIYyde?domain=optaplayerstats.statsperform.com&language=en",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "sample": "{\"nodes\":[{\"serviceIds\":[\"HkPBYFofN\"],\"hash\":\"1022547942667\",\"src\":\"https://secure.widget.cloud.opta.net/v3/css/v3.all.opta-widgets.css\"},{\"serviceIds\":[\"HkPBYFofN\"],\"hash\":\"6538558644540\",\"src\":\"https://optaplayerstats.statsperform.com/css/betshowcase.css?v=1.8.6\"},{\"serviceIds\":[\"BJ59EidsWQ\"],\"hash\":\"11031590464980\",\"src\":\"https://www.googletagmanager.com/gtag/js?id=G-7T677PWWJ1\"},{\"serviceIds\":[\"xPiZI7KXsPZvAi\"],\"hash\":\"13941223348189\",\"src\":\"https://subscribe-forms.beehiiv.com/embed.js\"},{\"s"
+    },
+    {
+      "url": "https://secure.widget.cloud.opta.net/translations_v2/default/W3_default_1_en_GB_331.json?callback=W3_default_1_en_GB_331",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "sample": "W3_default_1_en_GB_331({\"d\": \"531|Attendance¦30901|Stake¦26611|Over %hc%¦26621|Under %hc%¦571|Draw|D¦441|No data found¦671|Second yellow card¦21451|Goal¦711|Own goal|OG¦681|Penalty scored|P¦691|Missed penalty¦631|Red card¦651|Substitution off|Sub off¦661|Substitution on|Sub on¦641|Yellow card¦21611|Fixture|FX¦511|Kick off|KO¦30601|Next¦30591|Click for the next question¦30581|Time is up¦30561|Question {{x}} of {{y}}¦30661|Score¦30671|{{x}} out of {{y}}¦30611|Start Quiz¦30571|Time left¦30621|Hi {{"
+    },
+    {
+      "url": "https://optaplayerstats.statsperform.com/api/en_GB/soccer/livescores?offset=-120",
+      "status": 200,
+      "contentType": "application/json",
+      "sample": "{\"matches\":[{\"id\":\"55xwipdr13y9h2ga7yv15n8yc\",\"status\":\"fixture\",\"coverage\":13,\"period\":16,\"date\":1779634800,\"comp\":{\"id\":\"2kwbbcootiqqgmrzs6o5inle5\",\"name\":\"Premier League\",\"nameSeo\":\"premier-league\",\"country\":{\"id\":\"1fk5l4hkqk12i7zske6mcqju6\",\"name\":\"england\",\"fullName\":\"England\",\"nameSeo\":\"england\",\"flag\":\"\\/images\\/flags\\/gb-eng.svg\"},\"link\":\"\\/en_GB\\/soccer\\/premier-league-2025-2026\\/51r6ph2woavlbbpk8f29nynf8\\/results\"},\"link\":\"\\/en_GB\\/soccer\\/premier-league-2025-2026\\/51r6ph2woavlbbpk8f29"
+    },
+    {
+      "url": "https://secure.widget.cloud.opta.net/subscriptions/v3_6805c5f0655c9b241ff536409892ab09.json",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "sample": "v3_6805c5f0655c9b241ff536409892ab09 ({\"data\":\"BjY4MDVjNWYwNjU1YzliMjQxZmY1MzY0MDk4OTJhYjA5AGZ0MXRpdjFpbnE3djFzazN5OXR2MTJ5aDUAAAAAAAAwAAATc2VjdXJlLndpZGdldC5jbG91ZC5vcHRhLm5ldAAqLnNjb3Jlc3dheS5jb20AKi5zdGF0c3BlcmZvcm1kZXYuY29tACouc3RhdHNwZXJmb3JtZGV2Lm1lAGJldC1tc21jLnN0YXRzcGVyZm9ybS5jb20AYmV0LW1zbWMuc3RhdHNwZXJmb3JtZGV2LmNvbQBiZXQtbXNtYy5zdGF0c3BlcmZvcm1kZXYubWUAbG9jYWxob3N0AG1zbWMuc3RhdHNwZXJmb3JtZGV2LmNvbQBtc21jLnN0YXRzcGVyZm9ybWRldi5tZQBvcHRhLW1zbWMuc3RhdHNwZXJmb3JtZGV2LmNvbQBvcHRhLW1zbWMuc3"
+    }
+  ]
+}

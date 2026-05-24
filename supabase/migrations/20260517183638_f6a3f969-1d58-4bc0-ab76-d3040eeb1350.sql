@@ -1,0 +1,1 @@
+ALTER TABLE public.predictions ADD COLUMN IF NOT EXISTS postmortem jsonb;
