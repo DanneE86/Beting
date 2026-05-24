@@ -6,5 +6,12 @@
   "main": "src/server.ts",
   "observability": {
     "enabled": true
+  },
+  "vars": {
+    "SUPABASE_URL": "https://revmfdtofyewbwwdcrju.supabase.co",
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_obG8kVSdOuvY88Xo6l0dlA_6ysuGnsn",
+    "VITE_SUPABASE_PROJECT_ID": "revmfdtofyewbwwdcrju",
+    "VITE_SUPABASE_URL": "https://revmfdtofyewbwwdcrju.supabase.co",
+    "VITE_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_obG8kVSdOuvY88Xo6l0dlA_6ysuGnsn"
   }
 }
