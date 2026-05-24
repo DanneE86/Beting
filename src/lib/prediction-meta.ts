@@ -20,21 +20,25 @@ export function extractBtts(row: BttsFields): {
   return { call, reason };
 }
 
+import type { MatchAnalysisSections } from "./match-analysis";
+
 /** Preliminär postmortem — behåll full analys om den redan finns. */
 export function mergePreliminaryPostmortem(
   existing: unknown,
   bttsCall?: BttsCall,
   bttsReason?: string,
+  matchAnalysis?: MatchAnalysisSections | null,
 ): Record<string, unknown> | null {
   const ex = existing as { preliminary?: boolean; verdict?: string } | null | undefined;
   if (ex?.verdict && !ex?.preliminary) return ex as Record<string, unknown>;
 
-  if (!bttsCall && !ex) return null;
+  if (!bttsCall && !matchAnalysis && !ex) return null;
 
   return {
     ...(ex && typeof ex === "object" ? ex : {}),
     ...(bttsCall
       ? { bttsCall, bttsReason: bttsReason ?? "", preliminary: true }
       : {}),
+    ...(matchAnalysis ? { matchAnalysis, preliminary: true } : {}),
   };
 }

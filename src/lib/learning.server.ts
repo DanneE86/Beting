@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import type { MatchAnalysisSections } from "./match-analysis";
 import {
   mergePreliminaryPostmortem,
   PREDICTION_MODEL_VERSION,
@@ -80,6 +81,7 @@ export type SavePredictionInput = {
   round?: number | null;
   bttsCall?: BttsCall;
   bttsReason?: string;
+  matchAnalysis?: MatchAnalysisSections | null;
 };
 
 async function findOpenPredictionId(input: SavePredictionInput): Promise<{
@@ -127,7 +129,12 @@ export async function savePrediction(input: SavePredictionInput) {
     btts_call: input.bttsCall ?? null,
     btts_reason: input.bttsReason ?? null,
     model_version: PREDICTION_MODEL_VERSION,
-    postmortem: mergePreliminaryPostmortem(null, input.bttsCall, input.bttsReason),
+    postmortem: mergePreliminaryPostmortem(
+      null,
+      input.bttsCall,
+      input.bttsReason,
+      input.matchAnalysis,
+    ),
   };
 
   const existing = await findOpenPredictionId(input);
@@ -136,6 +143,7 @@ export async function savePrediction(input: SavePredictionInput) {
       existing.postmortem,
       input.bttsCall,
       input.bttsReason,
+      input.matchAnalysis,
     );
     const { error } = await supabaseAdmin
       .from("predictions")

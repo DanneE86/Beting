@@ -12,6 +12,11 @@ const OPTA_BASE = "https://optaplayerstats.statsperform.com";
 const SOCCER_URL = `${OPTA_BASE}/en_GB/soccer`;
 const SESSION_PATH = resolve(".opta/session.json");
 
+export type OptaScorePair = {
+  home: number;
+  away: number;
+};
+
 export type OptaMatch = {
   id: string;
   status: string;
@@ -19,11 +24,27 @@ export type OptaMatch = {
   leagueId: string;
   leagueName: string;
   leagueSeo: string;
+  leagueLink: string;
+  countryId: string;
+  countryName: string;
+  countryFullName: string;
+  countryFlag: string;
   homeId: string;
   homeName: string;
   awayId: string;
   awayName: string;
   link: string;
+  coverage: number | null;
+  period: number | null;
+  updated: number | null;
+  /** Halvtidsresultat (score.ht). */
+  scoreHt: OptaScorePair | null;
+  /** Slutresultat (score.ft), null om matchen inte är avgjord. */
+  scoreFt: OptaScorePair | null;
+  /** Aktuell ställning (score.total) — live eller slut. */
+  scoreTotal: OptaScorePair | null;
+  /** Antal mål i events-listan (spelade/live med täckning). */
+  goalCount: number | null;
 };
 
 export type OptaLiveScores = {
@@ -31,19 +52,52 @@ export type OptaLiveScores = {
   matches: OptaMatch[];
 };
 
-function mapMatch(raw: any): OptaMatch {
+function mapScorePair(side: { home?: number; away?: number } | undefined): OptaScorePair | null {
+  if (!side || side.home == null || side.away == null) return null;
+  return { home: side.home, away: side.away };
+}
+
+/** Mappar ett rått livescores-matchobjekt från Opta API. */
+export function mapOptaMatch(raw: Record<string, unknown>): OptaMatch {
+  const comp = raw.comp as Record<string, unknown> | undefined;
+  const country = comp?.country as Record<string, unknown> | undefined;
+  const home = raw.home as Record<string, unknown> | undefined;
+  const away = raw.away as Record<string, unknown> | undefined;
+  const score = raw.score as Record<string, unknown> | undefined;
+  const events = Array.isArray(raw.events) ? raw.events : [];
+  const goalCount = events.filter(
+    (e) =>
+      (e as Record<string, unknown>).entity_type === "goal" ||
+      (e as Record<string, unknown>).type === "G",
+  ).length;
+
+  const leagueLink = typeof comp?.link === "string" ? comp.link : "";
+  const matchLink = typeof raw.link === "string" ? raw.link : "";
+
   return {
-    id: raw.id,
-    status: raw.status,
-    date: raw.date,
-    leagueId: raw.comp?.id ?? "",
-    leagueName: raw.comp?.name ?? "",
-    leagueSeo: raw.comp?.nameSeo ?? "",
-    homeId: raw.home?.id ?? "",
-    homeName: raw.home?.name ?? "",
-    awayId: raw.away?.id ?? "",
-    awayName: raw.away?.name ?? "",
-    link: raw.link ? `${OPTA_BASE}${raw.link}` : "",
+    id: String(raw.id ?? ""),
+    status: String(raw.status ?? ""),
+    date: Number(raw.date ?? 0),
+    leagueId: String(comp?.id ?? ""),
+    leagueName: String(comp?.name ?? ""),
+    leagueSeo: String(comp?.nameSeo ?? ""),
+    leagueLink: leagueLink ? `${OPTA_BASE}${leagueLink}` : "",
+    countryId: String(country?.id ?? ""),
+    countryName: String(country?.name ?? ""),
+    countryFullName: String(country?.fullName ?? ""),
+    countryFlag: String(country?.flag ?? ""),
+    homeId: String(home?.id ?? ""),
+    homeName: String(home?.name ?? ""),
+    awayId: String(away?.id ?? ""),
+    awayName: String(away?.name ?? ""),
+    link: matchLink ? `${OPTA_BASE}${matchLink}` : "",
+    coverage: raw.coverage != null ? Number(raw.coverage) : null,
+    period: raw.period != null ? Number(raw.period) : null,
+    updated: raw.updated != null ? Number(raw.updated) : null,
+    scoreHt: mapScorePair(score?.ht as { home?: number; away?: number }),
+    scoreFt: mapScorePair(score?.ft as { home?: number; away?: number }),
+    scoreTotal: mapScorePair(score?.total as { home?: number; away?: number }),
+    goalCount: events.length > 0 ? goalCount : null,
   };
 }
 
@@ -116,7 +170,7 @@ export async function fetchOptaLiveScores(options?: {
 
     await saveSession(context);
 
-    const matches = (payload?.matches ?? []).map(mapMatch);
+    const matches = (payload?.matches ?? []).map((m: Record<string, unknown>) => mapOptaMatch(m));
     return { fetchedAt: new Date().toISOString(), matches };
   } finally {
     await context?.close();
@@ -152,4 +206,4 @@ export async function fetchOptaApi<T = unknown>(
 }
 
 /** Normalisera lagnamn för matchning mot ESPN. */
-export { findOptaMatch, normTeam } from "./opta.utils";
+export { findOptaMatch, formatOptaMatchSummary, normTeam } from "./opta.utils";

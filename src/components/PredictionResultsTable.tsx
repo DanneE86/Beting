@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Brain } from "lucide-react";
 import { MatchDateTime } from "@/components/MatchDateTime";
 import { BttsDisplay } from "@/components/BttsDisplay";
+import { extractMatchAnalysis, MatchAnalysisDisplay } from "@/components/MatchAnalysisDisplay";
 import { extractBtts } from "@/lib/prediction-meta";
 import { parseBttsReason } from "@/lib/btts-model";
 import { outcomeToTip, isExactScore } from "@/lib/match-outcome";
@@ -169,6 +170,7 @@ export function PredictionResultsTable({
                     bettingTip={r.betting_tip}
                     bttsCall={btts.call}
                     bttsReason={btts.reason}
+                    postmortem={r.postmortem}
                     homePct={r.home_win_pct}
                     drawPct={r.draw_pct}
                     awayPct={r.away_win_pct}
@@ -191,6 +193,7 @@ function PrematchAnalysisRow({
   bettingTip,
   bttsCall,
   bttsReason,
+  postmortem,
   homePct,
   drawPct,
   awayPct,
@@ -202,6 +205,7 @@ function PrematchAnalysisRow({
   bettingTip: string | null | undefined;
   bttsCall: "ja" | "nej" | "osäker" | null;
   bttsReason: string | null;
+  postmortem?: unknown;
   homePct?: number | string | null;
   drawPct?: number | string | null;
   awayPct?: number | string | null;
@@ -209,6 +213,7 @@ function PrematchAnalysisRow({
   awayName?: string;
   colSpan: number;
 }) {
+  const matchAnalysis = extractMatchAnalysis(postmortem);
   const factors = Array.isArray(keyFactors)
     ? (keyFactors as unknown[]).map(String).filter(Boolean)
     : [];
@@ -220,7 +225,8 @@ function PrematchAnalysisRow({
   const top = hasPcts ? Math.max(h, d, a) : 0;
   const bttsDetails = parseBttsReason(bttsReason);
   const hasBttsPcts = bttsDetails.yesPct != null && bttsDetails.noPct != null;
-  const hasContent = factors.length > 0 || !!bettingTip || !!bttsReason || hasPcts || hasBttsPcts;
+  const hasContent =
+    !!matchAnalysis || factors.length > 0 || !!bettingTip || !!bttsReason || hasPcts || hasBttsPcts;
   if (!hasContent) {
     return (
       <tr className="border-t border-border/30 bg-muted/10">
@@ -301,7 +307,11 @@ function PrematchAnalysisRow({
                   </div>
                 </div>
               )}
-              {factors.length > 0 && (
+              {matchAnalysis ? (
+                <div className="min-w-0 sm:col-span-2">
+                  <MatchAnalysisDisplay analysis={matchAnalysis} compact />
+                </div>
+              ) : factors.length > 0 ? (
                 <div className="min-w-0">
                   <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
                     Nyckelfaktorer
@@ -312,7 +322,7 @@ function PrematchAnalysisRow({
                     ))}
                   </ul>
                 </div>
-              )}
+              ) : null}
               <div className="min-w-0 space-y-2">
                 {bettingTip && (
                   <div>

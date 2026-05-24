@@ -18,7 +18,7 @@ import {
   type TeamArchiveRatings,
 } from "./league-ratings.server";
 import type { OptaMatch } from "./opta.scraper";
-import { findOptaMatch } from "./opta.utils";
+import { findOptaMatch, formatOptaMatchSummary } from "./opta.utils";
 import { getCachedOptaMatches } from "./opta.server";
 import { applyProBettorAdjustments, buildProBettingAdvice } from "./pro-bettor-model";
 import { predictBtts } from "./btts-model";
@@ -59,6 +59,12 @@ import {
   poissonMatchPrediction,
   resolvePredictedScore,
 } from "./poisson-model";
+import {
+  buildPreMatchChecklistData,
+  buildTemplateMatchAnalysis,
+  fetchEventMeta,
+  type MatchAnalysisSections,
+} from "./match-analysis";
 
 async function teamRoster(leagueSlug: string, teamId: string) {
   try {
@@ -430,6 +436,14 @@ function buildStatisticalPrediction(input: {
   awayRestDays?: number | null;
   seasonContext?: ReturnType<typeof buildSeasonContext>;
   optaMatch?: OptaMatch | null;
+  preMatchChecklist?: ReturnType<typeof buildPreMatchChecklistData>;
+  eventMeta?: Awaited<ReturnType<typeof fetchEventMeta>>;
+  homeName?: string;
+  awayName?: string;
+  homeStanding?: StandingRow;
+  awayStanding?: StandingRow;
+  homeAbsenceReport?: ReturnType<typeof buildKeyAbsenceReport>;
+  awayAbsenceReport?: ReturnType<typeof buildKeyAbsenceReport>;
 }) {
   const {
     homeName,
@@ -456,6 +470,10 @@ function buildStatisticalPrediction(input: {
     awayRestDays,
     seasonContext,
     optaMatch,
+    preMatchChecklist,
+    eventMeta,
+    homeAbsenceReport,
+    awayAbsenceReport,
   } = input;
 
   const leagueAvg =
@@ -585,7 +603,7 @@ function buildStatisticalPrediction(input: {
     );
   }
   if (optaMatch) {
-    keyFactors.push(`Opta: ${optaMatch.leagueName}, status ${optaMatch.status} (synkad data).`);
+    keyFactors.push(`${formatOptaMatchSummary(optaMatch)} (synkad data).`);
   }
   for (const n of pro.notes) keyFactors.push(n);
   if (calibration?.resolved && calibration.resolved >= 5) {
@@ -646,6 +664,38 @@ function buildStatisticalPrediction(input: {
         ? "Startelvor släppta enligt ESPN."
         : "Startelvor ej släppta ännu.";
 
+  const matchAnalysis: MatchAnalysisSections | null = preMatchChecklist
+    ? buildTemplateMatchAnalysis({
+        homeName,
+        awayName,
+        checklist: preMatchChecklist,
+        homeGoalStats,
+        awayGoalStats,
+        homeStanding: homeStanding
+          ? { rank: homeStanding.rank, pts: homeStanding.pts, gf: homeStanding.gf, ga: homeStanding.ga }
+          : undefined,
+        awayStanding: awayStanding
+          ? { rank: awayStanding.rank, pts: awayStanding.pts, gf: awayStanding.gf, ga: awayStanding.ga }
+          : undefined,
+        seasonContext: seasonContext
+          ? {
+              home: { stakeLabel: seasonContext.home.stakeLabel, rank: seasonContext.home.rank },
+              away: { stakeLabel: seasonContext.away.stakeLabel, rank: seasonContext.away.rank },
+              motivatedSide: seasonContext.motivatedSide,
+            }
+          : null,
+        marketOdds: marketOdds
+          ? { marketProbPct: marketOdds.marketProbPct, decimalOdds: marketOdds.decimalOdds }
+          : null,
+        modelPct: { home: homeWinPct, draw: drawPct, away: awayWinPct },
+        homeAbsenceScore: homeAbsenceScore,
+        awayAbsenceScore: awayAbsenceScore,
+        keyAbsencesHome: homeAbsenceReport?.keyAbsences.map((p) => p.name),
+        keyAbsencesAway: awayAbsenceReport?.keyAbsences.map((p) => p.name),
+        lineupReleased: lineups.released,
+      })
+    : null;
+
   return {
     homeWinPct,
     drawPct,
@@ -674,6 +724,8 @@ function buildStatisticalPrediction(input: {
           books: marketOdds.providers,
         }
       : null,
+    matchAnalysis,
+    eventMeta,
   };
 }
 
@@ -696,10 +748,10 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
         getTransfermarktInjuries(data.awayName),
       ]);
 
-    const homeForm = homeSchedule.slice(-5).map((m: MatchRow) => ({
+    const homeForm = homeSchedule.slice(-6).map((m: MatchRow) => ({
       result: m.result, score: m.score, opponent: m.opponent, homeAway: m.homeAway,
     }));
-    const awayForm = awaySchedule.slice(-5).map((m: MatchRow) => ({
+    const awayForm = awaySchedule.slice(-6).map((m: MatchRow) => ({
       result: m.result, score: m.score, opponent: m.opponent, homeAway: m.homeAway,
     }));
 
@@ -711,9 +763,14 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
     const awayGoalStats = computeGoalStats(awaySchedule);
     const homeRestDays = daysSinceLast(homeSchedule);
     const awayRestDays = daysSinceLast(awaySchedule);
-    const marketOdds = lineups.eventId
-      ? await getMarketOdds(data.leagueId, lineups.eventId)
-      : null;
+    const [marketOdds, eventMeta] = await Promise.all([
+      lineups.eventId
+        ? getMarketOdds(data.leagueId, lineups.eventId)
+        : Promise.resolve(null),
+      lineups.eventId
+        ? fetchEventMeta(data.leagueId, lineups.eventId)
+        : Promise.resolve(null),
+    ]);
 
     // Allsvenskan: hämta dagens trupp från klubbens hemsida om möjligt.
     const matchDate = lineups.eventDate ? new Date(lineups.eventDate) : new Date();
@@ -766,6 +823,18 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
         : undefined;
 
     const seasonContext = buildSeasonContext(standings, data.homeId, data.awayId, data.leagueId);
+
+    const preMatchChecklist = buildPreMatchChecklistData({
+      homeSchedule,
+      awaySchedule,
+      homeTeamId: data.homeId,
+      awayTeamId: data.awayId,
+      standings: standings.map((s) => ({ teamId: s.teamId, rank: s.rank })),
+      h2h,
+      homeGoalStats,
+      awayGoalStats,
+      eventMeta,
+    });
 
     const context = {
       league: lg?.name ?? data.leagueId,
@@ -835,6 +904,8 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
           : null,
       },
       headToHead: h2h,
+      preMatchChecklist,
+      eventMeta,
       marketOdds,
       lineupStatus: lineups.released
         ? `Officiella startelvor släppta (${lineups.source})`
@@ -885,6 +956,10 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
       awayRestDays,
       seasonContext,
       optaMatch,
+      preMatchChecklist,
+      eventMeta,
+      homeAbsenceReport,
+      awayAbsenceReport,
     };
 
     if (!apiKey) {
@@ -908,12 +983,13 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
         round: data.round ?? null,
         bttsCall: stat.bttsCall,
         bttsReason: stat.bttsReason,
+        matchAnalysis: stat.matchAnalysis ?? null,
       }).catch((e) => console.error("savePrediction error", e));
       return stat;
     }
 
     const sys = `Du är en expertanalytiker för fotbollsbetting. Analysera matchen utifrån:
-- Senaste 5 matcher (form)
+- Senaste 5–6 matcher (form) — se 'last5' och 'preMatchChecklist.homeLast6/awayLast6'
 - Tabellplats, poäng, mål för/emot, målskillnad
 - expectedPoints (xPts) = poäng laget BORDE haft baserat på målskillnad
 - luckIndex = poäng - xPts. + = överpresterat (regression väntad), − = otur (studsa tillbaka)
@@ -943,10 +1019,20 @@ ALLSVENSKAN — MATCHDAGSTRUPP FRÅN KLUBBENS HEMSIDA:
 
 EXPERT-DATA (väg in i analysen):
 - 'headToHead' = sista 5 inbördes mötena ur hemmalagets perspektiv. Mönster (t.ex. bortalaget vinner 4 av 5) väger TUNGT.
+- 'preMatchChecklist' = förberäknad checklista: hemma-/bortarekord (poäng, GD, BTTS%, nolla%), målprofil (målrik/låst), favoritvinster hemma, poäng borta mot topplag, H2H-snitt.
 - 'last5AtHome' = hemmalagets form ENDAST på hemmaplan. 'last5OnRoad' = bortalagets form ENDAST på bortaplan. Använd dessa istället för bara 'last5' när du bedömer hemma-/bortakapacitet.
 - 'goalTrendsLast10' = snitt mål för/emot, BTTS%, Over 2.5%, clean sheets, failed-to-score (sista 10). Använd för att kalibrera 'predictedScore' och välja över/under-tips.
 - 'restDays' = dagar sedan senaste match. <4 dagar = matchtrötthet, risk för svagare prestation.
-- 'marketOdds' = bookmakers konsensus med 'marketProbPct' (%-sannolikhet utan overround). JÄMFÖR alltid din egen homeWinPct/drawPct/awayWinPct mot marknaden. Om din sannolikhet skiljer >5%-enheter från marknaden = potentiellt VÄRDESPEL — nämn det explicit i 'bettingTip' och förklara varför du tror marknaden har fel.
+- 'eventMeta' = väder, domare, arena om ESPN har data.
+- 'marketOdds' = bookmakers konsensus med 'marketProbPct' (%-sannolikhet utan overround). JÄMFÖR alltid din egen homeWinPct/drawPct/awayWinPct mot marknaden. Om din sannolikhet skiljer >5%-enheter från marknaden = potentiellt VÄRDESPEL — nämn det explicit i 'bettingTip' och 'valueBet'.
+
+OBLIGATORISK BETTING-CHECKLISTA — fyll fälten 'matchAnalysis' med 2–4 meningar svenska per avsnitt (utifrån datan, inga påhittade spelare):
+1. grundlaggande — form senaste 5–6, hemma-/bortastatistik (poäng, GD, vinster), snitt mål anfall/försvar, målrik vs låst matchprofil.
+2. btts — BTTS% totalt/hemma/borta, clean sheets, tendens att släppa in mål, anfallsstil om datan räcker (xG, över 2.5).
+3. oneXtwo — realistisk vinstchans 1/X/2, favoritvinster hemma, bortaresultat mot topplag, tabell/motivation (europaplats, nedflyttning, titel via seasonContext).
+4. h2h — tidigare möten, särskilt på samma arena, målrika eller låsta inbördes matcher.
+5. lagnyheter — skador/avstängningar, återkommande spelare, förväntad startelva (anfall/mittfält), taktik/formation om signal finns.
+6. ovrigt — väder, domarprofil, matchpress (derby, tränarpress), marknadens odds vs din bedömning (valueBet).
 
 VAD PROFFSTIPPARE KOLLAR PÅ (gör en egen mental checklista på dessa innan du sätter tipset, och nämn de som väger tyngst i 'keyFactors'):
 1. Motivation & insats: Spelar något av lagen om guld/Europaplats/nytt kontrakt/kval? Är ett lag redan klart för nedflyttning eller har inget att spela för? Omotiverade favoriter underpresterar nästan alltid.
@@ -1015,7 +1101,7 @@ Returnera ENDAST giltig JSON enligt schemat.`;
 Föreslagen ställning: ${statBaseline.predictedScore} · Konfidens: ${statBaseline.confidence}
 ${statBaseline.keyFactors.slice(0, 2).join(" ")}
 
-Matchdata:\n${JSON.stringify(context, null, 2)}\n\nGe en betting-analys. Var extra noga med att inte hitta på spelare. Justera sannolikheterna från baseline endast med tydliga matchspecifika skäl (skador, motivation, H2H).`;
+Matchdata:\n${JSON.stringify(context, null, 2)}\n\nGe en betting-analys med ifylld 'matchAnalysis' (alla 6 avsnitt). Var extra noga med att inte hitta på spelare. Justera sannolikheterna från baseline endast med tydliga matchspecifika skäl (skador, motivation, H2H).`;
 
     const callAI = async (model: string) =>
       fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -1068,12 +1154,32 @@ Matchdata:\n${JSON.stringify(context, null, 2)}\n\nGe en betting-analys. Var ext
                       type: "string",
                       enum: ["ökat", "minskat", "oförändrat", "okänt"],
                     },
+                    matchAnalysis: {
+                      type: "object",
+                      description: "Strukturerad betting-checklista på svenska",
+                      properties: {
+                        grundlaggande: { type: "string" },
+                        btts: { type: "string" },
+                        oneXtwo: { type: "string" },
+                        h2h: { type: "string" },
+                        lagnyheter: { type: "string" },
+                        ovrigt: { type: "string" },
+                      },
+                      required: [
+                        "grundlaggande",
+                        "btts",
+                        "oneXtwo",
+                        "h2h",
+                        "lagnyheter",
+                        "ovrigt",
+                      ],
+                    },
                   },
                   required: [
                     "homeWinPct", "drawPct", "awayWinPct", "predictedScore",
                     "confidence", "keyFactors", "bettingTip",
                     "bttsCall", "bttsReason", "valueBet",
-                    "lineupNotes", "lineupValueShift",
+                    "lineupNotes", "lineupValueShift", "matchAnalysis",
                   ],
                 },
               },
@@ -1124,6 +1230,7 @@ Matchdata:\n${JSON.stringify(context, null, 2)}\n\nGe en betting-analys. Var ext
       valueBet: string;
       lineupNotes: string;
       lineupValueShift: "ökat" | "minskat" | "oförändrat" | "okänt";
+      matchAnalysis: MatchAnalysisSections;
     };
 
     // Post-hoc kalibrering (historisk bias, Brier, baseline) — viktigare än ren AI-träff.
@@ -1154,6 +1261,9 @@ Matchdata:\n${JSON.stringify(context, null, 2)}\n\nGe en betting-analys. Var ext
     // BTTS alltid från statistikmodellen — samma som enskild match & dagens tips
     parsed.bttsCall = statBaseline.bttsCall;
     parsed.bttsReason = statBaseline.bttsReason;
+    if (!parsed.matchAnalysis && statBaseline.matchAnalysis) {
+      parsed.matchAnalysis = statBaseline.matchAnalysis;
+    }
     parsed.predictedScore = fixBttsScoreCoherence(
       parsed.predictedScore,
       parsed.bttsCall,
@@ -1182,6 +1292,7 @@ Matchdata:\n${JSON.stringify(context, null, 2)}\n\nGe en betting-analys. Var ext
       round: data.round ?? null,
       bttsCall: parsed.bttsCall,
       bttsReason: parsed.bttsReason,
+      matchAnalysis: parsed.matchAnalysis ?? null,
     }).catch((e) => console.error("savePrediction error", e));
 
 

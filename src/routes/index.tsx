@@ -15,7 +15,9 @@ import {
   buildSystem,
 } from "@/lib/stryktipset.functions";
 import { BttsDisplay } from "@/components/BttsDisplay";
+import { MatchAnalysisDisplay } from "@/components/MatchAnalysisDisplay";
 import type { BttsCall } from "@/lib/prediction-meta";
+import type { MatchAnalysisSections } from "@/lib/match-analysis";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -783,6 +785,7 @@ function PredictionPanel({
     lineupReleased?: boolean;
     missingHome?: string[];
     missingAway?: string[];
+    matchAnalysis?: MatchAnalysisSections | null;
     marketOdds?: {
       decimalOdds: { home: number | null; draw: number | null; away: number | null };
       marketProbPct: { home: number; draw: number; away: number };
@@ -830,11 +833,15 @@ function PredictionPanel({
           </div>
         </div>
       )}
-      <ul className="text-xs space-y-1 text-muted-foreground list-disc pl-4">
-        {p.keyFactors.map((f, i) => (
-          <li key={i}>{f}</li>
-        ))}
-      </ul>
+      {p.matchAnalysis ? (
+        <MatchAnalysisDisplay analysis={p.matchAnalysis} compact />
+      ) : (
+        <ul className="text-xs space-y-1 text-muted-foreground list-disc pl-4">
+          {p.keyFactors.map((f, i) => (
+            <li key={i}>{f}</li>
+          ))}
+        </ul>
+      )}
       {p.bttsCall && (
         <BttsDisplay call={p.bttsCall} reason={p.bttsReason} variant="panel" />
       )}

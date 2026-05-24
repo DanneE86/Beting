@@ -24,12 +24,20 @@
     "setup:sql": "powershell -ExecutionPolicy Bypass -File scripts/open-sql-setup.ps1",
     "setup:db": "powershell -ExecutionPolicy Bypass -File scripts/run-supabase-setup.ps1",
     "test:db": "npx tsx scripts/test-supabase.ts",
-    "backfill": "npx tsx scripts/backfill-all.ts",
-    "train:models": "npx tsx scripts/train-league-models.ts",
+    "sync": "npx tsx scripts/sync-all.ts",
+    "sync:full": "npx tsx scripts/sync-all.ts --full",
+    "backfill": "npx tsx scripts/sync-all.ts --only=backfill",
+    "train:models": "npx tsx scripts/sync-all.ts --only=train",
     "test:opta": "playwright test tests/opta.spec.ts --headed",
     "test:opta:setup": "playwright test tests/opta.spec.ts --headed",
     "test:opta:probe": "node scripts/opta-probe.mjs",
-    "sync:opta": "npx tsx scripts/opta-sync.ts"
+    "sync:opta": "npx tsx scripts/sync-all.ts --only=opta",
+    "v86:build": "npx tsx scripts/sync-all.ts --only=v86",
+    "v86:analyze": "npx tsx v86/scripts/fetch-and-build.ts",
+    "v86:travsport": "npx tsx v86/scripts/travsport-sync.ts",
+    "v86:dev": "vite dev --open /v86",
+    "test:v86": "playwright test tests/v86-fetch.spec.ts",
+    "test:v86:headed": "playwright test tests/v86-fetch.spec.ts --headed"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.25.5",

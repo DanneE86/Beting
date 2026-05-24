@@ -21,3 +21,22 @@ export function findOptaMatch(
     return (mh.includes(h) || h.includes(mh)) && (ma.includes(a) || a.includes(ma));
   });
 }
+
+function fmtScore(s: { home: number; away: number }) {
+  return `${s.home}-${s.away}`;
+}
+
+/** Kort svensk sammanfattning för prediktioner och loggar. */
+export function formatOptaMatchSummary(m: OptaMatch): string {
+  const place = m.countryFullName || m.countryName;
+  const placePart = place ? `${place} · ` : "";
+  const display = m.scoreFt ?? m.scoreTotal;
+  let scorePart = "";
+  if (display) {
+    scorePart = ` · ${fmtScore(display)}`;
+    if (m.scoreHt && m.status !== "fixture") {
+      scorePart += ` (HT ${fmtScore(m.scoreHt)})`;
+    }
+  }
+  return `Opta: ${placePart}${m.leagueName} · ${m.status}${scorePart}`;
+}

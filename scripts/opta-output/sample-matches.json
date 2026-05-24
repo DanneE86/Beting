@@ -1,0 +1,491 @@
+{
+  "statuses": [
+    "played",
+    "fixture",
+    "playing"
+  ],
+  "fixture": {
+    "id": "3xcjz4isjg101zf0d40lxkglw",
+    "status": "fixture",
+    "coverage": 13,
+    "period": 16,
+    "date": 1779649200,
+    "comp": {
+      "id": "34pl8szyvrbwcmfkuocjm3r6t",
+      "name": "Primera División",
+      "nameSeo": "primera-división",
+      "country": {
+        "id": "49ih1pwv3ahshdf8uzrimi54c",
+        "name": "spain",
+        "fullName": "Spain",
+        "nameSeo": "spain",
+        "flag": "/images/flags/es.svg"
+      },
+      "link": "/en_GB/soccer/primera-división-2025-2026/80zg2v1cuqcfhphn56u4qpyqc/results"
+    },
+    "link": "/en_GB/soccer/primera-división-2025-2026/80zg2v1cuqcfhphn56u4qpyqc/match/villarreal-vs-atlético-de-madrid/3xcjz4isjg101zf0d40lxkglw",
+    "home": {
+      "id": "74mcjsm72vr3l9pw2i4qfjchj",
+      "name": "Villarreal"
+    },
+    "away": {
+      "id": "4ku8o6uf87yd8iecdalipo6wd",
+      "name": "Atlético de Madrid"
+    },
+    "updated": 1778518183
+  },
+  "withScore": {
+    "id": "55xwipdr13y9h2ga7yv15n8yc",
+    "status": "played",
+    "coverage": 13,
+    "period": 14,
+    "date": 1779634800,
+    "comp": {
+      "id": "2kwbbcootiqqgmrzs6o5inle5",
+      "name": "Premier League",
+      "nameSeo": "premier-league",
+      "country": {
+        "id": "1fk5l4hkqk12i7zske6mcqju6",
+        "name": "england",
+        "fullName": "England",
+        "nameSeo": "england",
+        "flag": "/images/flags/gb-eng.svg"
+      },
+      "link": "/en_GB/soccer/premier-league-2025-2026/51r6ph2woavlbbpk8f29nynf8/results"
+    },
+    "link": "/en_GB/soccer/premier-league-2025-2026/51r6ph2woavlbbpk8f29nynf8/match/brighton-hove-albion-vs-manchester-united/55xwipdr13y9h2ga7yv15n8yc",
+    "home": {
+      "id": "e5p0ehyguld7egzhiedpdnc3w",
+      "name": "Brighton & Hove Albion"
+    },
+    "away": {
+      "id": "6eqit8ye8aomdsrrq0hk3v7gh",
+      "name": "Manchester United"
+    },
+    "score": {
+      "ht": {
+        "home": 0,
+        "away": 2
+      },
+      "ft": {
+        "home": 0,
+        "away": 3
+      },
+      "total": {
+        "home": 0,
+        "away": 3
+      }
+    },
+    "events": [
+      {
+        "periodId": 1,
+        "min": 33,
+        "timeStr": "32:53",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "goal",
+        "playerId": "cr5wtg3ulqjts3lu3xpnmlmac",
+        "playerName": "P. Dorgu",
+        "type": "G",
+        "player2Id": "3vtjjrqof5z2tjj84ehadqc45",
+        "player2Name": "Bruno Fernandes",
+        "score": [
+          0,
+          1
+        ]
+      },
+      {
+        "periodId": 1,
+        "min": 44,
+        "timeStr": "43:10",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "goal",
+        "playerId": "v78uhwxgzojcec8lsdvucusp",
+        "playerName": "B. Mbeumo",
+        "type": "G",
+        "player2Id": "didsdryngjutw2x6tpwnnju5m",
+        "player2Name": "A. Diallo",
+        "score": [
+          0,
+          2
+        ]
+      },
+      {
+        "periodId": 1,
+        "min": 48,
+        "timeStr": "47:56",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "card",
+        "playerId": "cgm6zre07l5qauif32jtfqsk4",
+        "playerName": "K. Mainoo",
+        "type": "YC",
+        "reason": "Foul"
+      },
+      {
+        "periodId": 2,
+        "min": 46,
+        "timeStr": "45:00",
+        "teamId": "e5p0ehyguld7egzhiedpdnc3w",
+        "entity_type": "sub",
+        "playerId": "50lnmkk33eoivv4ksly77hkpg",
+        "playerName": "Y. Minteh",
+        "player2Id": "bjhjz96omjukrg6tj3mny39t6",
+        "player2Name": "M. De Cuyper"
+      },
+      {
+        "periodId": 2,
+        "min": 48,
+        "timeStr": "47:38",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "goal",
+        "playerId": "3vtjjrqof5z2tjj84ehadqc45",
+        "playerName": "Bruno Fernandes",
+        "type": "G",
+        "player2Id": "cr5wtg3ulqjts3lu3xpnmlmac",
+        "player2Name": "P. Dorgu",
+        "score": [
+          0,
+          3
+        ]
+      },
+      {
+        "periodId": 2,
+        "min": 50,
+        "timeStr": "49:07",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "var",
+        "playerId": "cr5wtg3ulqjts3lu3xpnmlmac",
+        "playerName": "P. Dorgu",
+        "type": "Goal not awarded",
+        "outcome": "Goal",
+        "decision": "Cancelled"
+      },
+      {
+        "periodId": 2,
+        "min": 59,
+        "timeStr": "58:01",
+        "teamId": "e5p0ehyguld7egzhiedpdnc3w",
+        "entity_type": "sub",
+        "playerId": "f23e0mo62rmrrjso771t54jro",
+        "playerName": "C. Kostoulas",
+        "player2Id": "c0yxqwkxqx1sty7abj1qwh9zp",
+        "player2Name": "D. Welbeck"
+      },
+      {
+        "periodId": 2,
+        "min": 59,
+        "timeStr": "58:06",
+        "teamId": "e5p0ehyguld7egzhiedpdnc3w",
+        "entity_type": "sub",
+        "playerId": "2wwo7wcxz4gfy0ubkzynvrsnp",
+        "playerName": "S. March",
+        "player2Id": "bqbt9eix8zlp6rxzxofl6rjmc",
+        "player2Name": "D. Gómez"
+      },
+      {
+        "periodId": 2,
+        "min": 59,
+        "timeStr": "58:14",
+        "teamId": "e5p0ehyguld7egzhiedpdnc3w",
+        "entity_type": "sub",
+        "playerId": "bt40tdni85hiz1gtkw0b6qmfo",
+        "playerName": "C. Baleba",
+        "player2Id": "3xqbru6q5dvtrhv6coe7retp1",
+        "player2Name": "J. Milner"
+      },
+      {
+        "periodId": 2,
+        "min": 62,
+        "timeStr": "61:21",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "sub",
+        "playerId": "759tgxt9xusnioh2clkiau4us",
+        "playerName": "S. Lacey",
+        "player2Id": "cr5wtg3ulqjts3lu3xpnmlmac",
+        "player2Name": "P. Dorgu"
+      },
+      {
+        "periodId": 2,
+        "min": 74,
+        "timeStr": "73:20",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "sub",
+        "playerId": "56bidwsegakrtx3z1qbbpnc6i",
+        "playerName": "J. Zirkzee",
+        "player2Id": "v78uhwxgzojcec8lsdvucusp",
+        "player2Name": "B. Mbeumo"
+      },
+      {
+        "periodId": 2,
+        "min": 74,
+        "timeStr": "73:29",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "sub",
+        "playerId": "ot85dcabdrz0p8rsxk2angno",
+        "playerName": "T. Fletcher",
+        "player2Id": "8nh6qf9i1d0qw7nx4wk25qzth",
+        "player2Name": "M. Mount"
+      },
+      {
+        "periodId": 2,
+        "min": 74,
+        "timeStr": "73:49",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "sub",
+        "playerId": "6q793p9lurdevqmetgoke54wk",
+        "playerName": "L. Yoro",
+        "player2Id": "7vhnftizqlyu31st2vsmgh6tx",
+        "player2Name": "N. Mazraoui"
+      },
+      {
+        "periodId": 2,
+        "min": 74,
+        "timeStr": "73:53",
+        "teamId": "e5p0ehyguld7egzhiedpdnc3w",
+        "entity_type": "sub",
+        "playerId": "e8ekkg0yayhhmmhinl0v9une",
+        "playerName": "G. Rutter",
+        "player2Id": "eikpw8bl1se3sj6hnsndi7zmc",
+        "player2Name": "J. Hinshelwood"
+      },
+      {
+        "periodId": 2,
+        "min": 82,
+        "timeStr": "81:35",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "sub",
+        "playerId": "bl8667xvrhy0tft8x3lgopomh",
+        "playerName": "T. Malacia",
+        "player2Id": "7uxt9a7t22ij4reg1uire5uqd",
+        "player2Name": "L. Shaw"
+      }
+    ],
+    "updated": 1779641932
+  },
+  "played": {
+    "id": "55xwipdr13y9h2ga7yv15n8yc",
+    "status": "played",
+    "coverage": 13,
+    "period": 14,
+    "date": 1779634800,
+    "comp": {
+      "id": "2kwbbcootiqqgmrzs6o5inle5",
+      "name": "Premier League",
+      "nameSeo": "premier-league",
+      "country": {
+        "id": "1fk5l4hkqk12i7zske6mcqju6",
+        "name": "england",
+        "fullName": "England",
+        "nameSeo": "england",
+        "flag": "/images/flags/gb-eng.svg"
+      },
+      "link": "/en_GB/soccer/premier-league-2025-2026/51r6ph2woavlbbpk8f29nynf8/results"
+    },
+    "link": "/en_GB/soccer/premier-league-2025-2026/51r6ph2woavlbbpk8f29nynf8/match/brighton-hove-albion-vs-manchester-united/55xwipdr13y9h2ga7yv15n8yc",
+    "home": {
+      "id": "e5p0ehyguld7egzhiedpdnc3w",
+      "name": "Brighton & Hove Albion"
+    },
+    "away": {
+      "id": "6eqit8ye8aomdsrrq0hk3v7gh",
+      "name": "Manchester United"
+    },
+    "score": {
+      "ht": {
+        "home": 0,
+        "away": 2
+      },
+      "ft": {
+        "home": 0,
+        "away": 3
+      },
+      "total": {
+        "home": 0,
+        "away": 3
+      }
+    },
+    "events": [
+      {
+        "periodId": 1,
+        "min": 33,
+        "timeStr": "32:53",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "goal",
+        "playerId": "cr5wtg3ulqjts3lu3xpnmlmac",
+        "playerName": "P. Dorgu",
+        "type": "G",
+        "player2Id": "3vtjjrqof5z2tjj84ehadqc45",
+        "player2Name": "Bruno Fernandes",
+        "score": [
+          0,
+          1
+        ]
+      },
+      {
+        "periodId": 1,
+        "min": 44,
+        "timeStr": "43:10",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "goal",
+        "playerId": "v78uhwxgzojcec8lsdvucusp",
+        "playerName": "B. Mbeumo",
+        "type": "G",
+        "player2Id": "didsdryngjutw2x6tpwnnju5m",
+        "player2Name": "A. Diallo",
+        "score": [
+          0,
+          2
+        ]
+      },
+      {
+        "periodId": 1,
+        "min": 48,
+        "timeStr": "47:56",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "card",
+        "playerId": "cgm6zre07l5qauif32jtfqsk4",
+        "playerName": "K. Mainoo",
+        "type": "YC",
+        "reason": "Foul"
+      },
+      {
+        "periodId": 2,
+        "min": 46,
+        "timeStr": "45:00",
+        "teamId": "e5p0ehyguld7egzhiedpdnc3w",
+        "entity_type": "sub",
+        "playerId": "50lnmkk33eoivv4ksly77hkpg",
+        "playerName": "Y. Minteh",
+        "player2Id": "bjhjz96omjukrg6tj3mny39t6",
+        "player2Name": "M. De Cuyper"
+      },
+      {
+        "periodId": 2,
+        "min": 48,
+        "timeStr": "47:38",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "goal",
+        "playerId": "3vtjjrqof5z2tjj84ehadqc45",
+        "playerName": "Bruno Fernandes",
+        "type": "G",
+        "player2Id": "cr5wtg3ulqjts3lu3xpnmlmac",
+        "player2Name": "P. Dorgu",
+        "score": [
+          0,
+          3
+        ]
+      },
+      {
+        "periodId": 2,
+        "min": 50,
+        "timeStr": "49:07",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "var",
+        "playerId": "cr5wtg3ulqjts3lu3xpnmlmac",
+        "playerName": "P. Dorgu",
+        "type": "Goal not awarded",
+        "outcome": "Goal",
+        "decision": "Cancelled"
+      },
+      {
+        "periodId": 2,
+        "min": 59,
+        "timeStr": "58:01",
+        "teamId": "e5p0ehyguld7egzhiedpdnc3w",
+        "entity_type": "sub",
+        "playerId": "f23e0mo62rmrrjso771t54jro",
+        "playerName": "C. Kostoulas",
+        "player2Id": "c0yxqwkxqx1sty7abj1qwh9zp",
+        "player2Name": "D. Welbeck"
+      },
+      {
+        "periodId": 2,
+        "min": 59,
+        "timeStr": "58:06",
+        "teamId": "e5p0ehyguld7egzhiedpdnc3w",
+        "entity_type": "sub",
+        "playerId": "2wwo7wcxz4gfy0ubkzynvrsnp",
+        "playerName": "S. March",
+        "player2Id": "bqbt9eix8zlp6rxzxofl6rjmc",
+        "player2Name": "D. Gómez"
+      },
+      {
+        "periodId": 2,
+        "min": 59,
+        "timeStr": "58:14",
+        "teamId": "e5p0ehyguld7egzhiedpdnc3w",
+        "entity_type": "sub",
+        "playerId": "bt40tdni85hiz1gtkw0b6qmfo",
+        "playerName": "C. Baleba",
+        "player2Id": "3xqbru6q5dvtrhv6coe7retp1",
+        "player2Name": "J. Milner"
+      },
+      {
+        "periodId": 2,
+        "min": 62,
+        "timeStr": "61:21",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "sub",
+        "playerId": "759tgxt9xusnioh2clkiau4us",
+        "playerName": "S. Lacey",
+        "player2Id": "cr5wtg3ulqjts3lu3xpnmlmac",
+        "player2Name": "P. Dorgu"
+      },
+      {
+        "periodId": 2,
+        "min": 74,
+        "timeStr": "73:20",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "sub",
+        "playerId": "56bidwsegakrtx3z1qbbpnc6i",
+        "playerName": "J. Zirkzee",
+        "player2Id": "v78uhwxgzojcec8lsdvucusp",
+        "player2Name": "B. Mbeumo"
+      },
+      {
+        "periodId": 2,
+        "min": 74,
+        "timeStr": "73:29",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "sub",
+        "playerId": "ot85dcabdrz0p8rsxk2angno",
+        "playerName": "T. Fletcher",
+        "player2Id": "8nh6qf9i1d0qw7nx4wk25qzth",
+        "player2Name": "M. Mount"
+      },
+      {
+        "periodId": 2,
+        "min": 74,
+        "timeStr": "73:49",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "sub",
+        "playerId": "6q793p9lurdevqmetgoke54wk",
+        "playerName": "L. Yoro",
+        "player2Id": "7vhnftizqlyu31st2vsmgh6tx",
+        "player2Name": "N. Mazraoui"
+      },
+      {
+        "periodId": 2,
+        "min": 74,
+        "timeStr": "73:53",
+        "teamId": "e5p0ehyguld7egzhiedpdnc3w",
+        "entity_type": "sub",
+        "playerId": "e8ekkg0yayhhmmhinl0v9une",
+        "playerName": "G. Rutter",
+        "player2Id": "eikpw8bl1se3sj6hnsndi7zmc",
+        "player2Name": "J. Hinshelwood"
+      },
+      {
+        "periodId": 2,
+        "min": 82,
+        "timeStr": "81:35",
+        "teamId": "6eqit8ye8aomdsrrq0hk3v7gh",
+        "entity_type": "sub",
+        "playerId": "bl8667xvrhy0tft8x3lgopomh",
+        "playerName": "T. Malacia",
+        "player2Id": "7uxt9a7t22ij4reg1uire5uqd",
+        "player2Name": "L. Shaw"
+      }
+    ],
+    "updated": 1779641932
+  }
+}

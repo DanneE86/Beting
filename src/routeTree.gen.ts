@@ -9,13 +9,25 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as V86RouteRouteImport } from './routes/v86/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as V86IndexRouteImport } from './routes/v86/index'
 import { Route as ApiPredictRouteImport } from './routes/api/predict'
 
+const V86RouteRoute = V86RouteRouteImport.update({
+  id: '/v86',
+  path: '/v86',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const V86IndexRoute = V86IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => V86RouteRoute,
 } as any)
 const ApiPredictRoute = ApiPredictRouteImport.update({
   id: '/api/predict',
@@ -25,38 +37,58 @@ const ApiPredictRoute = ApiPredictRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/v86': typeof V86RouteRouteWithChildren
   '/api/predict': typeof ApiPredictRoute
+  '/v86/': typeof V86IndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/predict': typeof ApiPredictRoute
+  '/v86': typeof V86IndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/v86': typeof V86RouteRouteWithChildren
   '/api/predict': typeof ApiPredictRoute
+  '/v86/': typeof V86IndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/predict'
+  fullPaths: '/' | '/v86' | '/api/predict' | '/v86/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/predict'
-  id: '__root__' | '/' | '/api/predict'
+  to: '/' | '/api/predict' | '/v86'
+  id: '__root__' | '/' | '/v86' | '/api/predict' | '/v86/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  V86RouteRoute: typeof V86RouteRouteWithChildren
   ApiPredictRoute: typeof ApiPredictRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/v86': {
+      id: '/v86'
+      path: '/v86'
+      fullPath: '/v86'
+      preLoaderRoute: typeof V86RouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/v86/': {
+      id: '/v86/'
+      path: '/'
+      fullPath: '/v86/'
+      preLoaderRoute: typeof V86IndexRouteImport
+      parentRoute: typeof V86RouteRoute
     }
     '/api/predict': {
       id: '/api/predict'
@@ -68,8 +100,21 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface V86RouteRouteChildren {
+  V86IndexRoute: typeof V86IndexRoute
+}
+
+const V86RouteRouteChildren: V86RouteRouteChildren = {
+  V86IndexRoute: V86IndexRoute,
+}
+
+const V86RouteRouteWithChildren = V86RouteRoute._addFileChildren(
+  V86RouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  V86RouteRoute: V86RouteRouteWithChildren,
   ApiPredictRoute: ApiPredictRoute,
 }
 export const routeTree = rootRouteImport
