@@ -186,3 +186,52 @@ export function predictBtts(input: {
 
   return { pct, call, reason, confidence };
 }
+
+export type BttsReasonDetails = {
+  yesPct: number | null;
+  noPct: number | null;
+  call: "ja" | "nej" | "osäker" | null;
+  confidence: "låg" | "medel" | "hög" | null;
+  explanation: string | null;
+};
+
+/** Tolka sparad btts_reason till Ja/Nej-% och förklaringstext. */
+export function parseBttsReason(
+  reason: string | null | undefined,
+): BttsReasonDetails {
+  if (!reason) {
+    return { yesPct: null, noPct: null, call: null, confidence: null, explanation: null };
+  }
+
+  const modern = reason.match(
+    /^BTTS (Ja|Nej|Osäker) \(båda gör mål (\d+(?:\.\d+)?)%, (låg|medel|hög) säkerhet\): (.+)\.?$/,
+  );
+  if (modern) {
+    const yesPct = Number(modern[2]);
+    const call = modern[1].toLowerCase() as "ja" | "nej" | "osäker";
+    return {
+      yesPct,
+      noPct: Math.round((100 - yesPct) * 10) / 10,
+      call,
+      confidence: modern[3] as "låg" | "medel" | "hög",
+      explanation: modern[4],
+    };
+  }
+
+  const legacy = reason.match(
+    /^BTTS (Ja|Nej|Osäker) \((\d+(?:\.\d+)?)%, (låg|medel|hög) säkerhet\): (.+)\.?$/,
+  );
+  if (legacy) {
+    const yesPct = Number(legacy[2]);
+    const call = legacy[1].toLowerCase() as "ja" | "nej" | "osäker";
+    return {
+      yesPct,
+      noPct: Math.round((100 - yesPct) * 10) / 10,
+      call,
+      confidence: legacy[3] as "låg" | "medel" | "hög",
+      explanation: legacy[4],
+    };
+  }
+
+  return { yesPct: null, noPct: null, call: null, confidence: null, explanation: reason };
+}

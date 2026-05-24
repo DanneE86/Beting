@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   bttsProbFromLambdas,
   bttsProbFromMatrix,
+  parseBttsReason,
   predictBtts,
 } from "@/lib/btts-model";
 import { buildScoreMatrix, rhoFromAvgGoals } from "@/lib/poisson-model";
@@ -71,5 +72,16 @@ describe("btts-model", () => {
       awayName: "B",
     });
     expect(injured.pct).toBeLessThan(base.pct);
+  });
+
+  it("parseBttsReason extraherar Ja/Nej-% och förklaring", () => {
+    const parsed = parseBttsReason(
+      "BTTS Nej (båda gör mål 27%, hög säkerhet): Poisson/DC 48% · form 43% · ligasnitt 52% · avbräck −20%.",
+    );
+    expect(parsed.yesPct).toBe(27);
+    expect(parsed.noPct).toBe(73);
+    expect(parsed.call).toBe("nej");
+    expect(parsed.confidence).toBe("hög");
+    expect(parsed.explanation).toContain("Poisson/DC 48%");
   });
 });

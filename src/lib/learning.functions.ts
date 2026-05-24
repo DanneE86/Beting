@@ -14,6 +14,14 @@ import {
   PREDICTION_SELECT_TODAY,
 } from "./predictions.repository";
 import {
+  fetchTodayScoreboardCandidates,
+  filterTodayTipsRows,
+  getTodayTipsWindow,
+  mergeTodayTipsWithScoreboard,
+  TODAY_TIPS_GRACE_MS,
+  TODAY_TIPS_HORIZON_MS,
+} from "./today-tips";
+import {
   confidenceRank,
   emptyOutcomeBuckets,
   tallyConfidence,
@@ -107,25 +115,29 @@ export const getTodayTips = createServerFn({ method: "GET" })
   .handler(async () => {
     const leagueIds = LEAGUES.map((l) => l.id);
     const now = new Date();
-    const upcomingCutoff = new Date(now.getTime() + 24 * 3600_000).toISOString();
-    const resolvedSince = new Date(now.getTime() - 24 * 3600_000).toISOString();
-    const { data: rows } = await supabaseAdmin
-      .from("predictions")
-      .select(PREDICTION_SELECT_TODAY)
-      .in("league_id", leagueIds)
-      .is("hidden_from_today_at", null)
-      .lt("event_date", upcomingCutoff)
-      .order("event_date", { ascending: true })
-      .limit(2000);
-    const filtered = (rows ?? []).filter((r) => {
-      if (!r.actual_outcome) return true; // orättat tips
-      return r.resolved_at != null && r.resolved_at >= resolvedSince; // rättat i senaste 24h
-    });
+    const window = getTodayTipsWindow(now);
+    const windowEndIso = window.windowEnd.toISOString();
+
+    const [dbResult, scoreboardCandidates] = await Promise.all([
+      supabaseAdmin
+        .from("predictions")
+        .select(PREDICTION_SELECT_TODAY)
+        .in("league_id", leagueIds)
+        .is("hidden_from_today_at", null)
+        .or(`event_date.is.null,event_date.lt.${windowEndIso}`)
+        .order("event_date", { ascending: true })
+        .limit(2000),
+      fetchTodayScoreboardCandidates(now),
+    ]);
+
+    const rows = dbResult.data ?? [];
+    const filtered = filterTodayTipsRows(rows, window, now);
     const sorted = [...filtered].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     );
-    const items = dedupePredictions(sorted);
-    items.sort((a, b) => new Date(a.event_date!).getTime() - new Date(b.event_date!).getTime());
+    const deduped = dedupePredictions(sorted);
+    const items = mergeTodayTipsWithScoreboard(deduped, scoreboardCandidates);
+
     const sthlmYmd = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Europe/Stockholm",
       year: "numeric",
@@ -135,6 +147,7 @@ export const getTodayTips = createServerFn({ method: "GET" })
     return {
       items,
       dateLabel: `Tips · ${sthlmYmd}`,
+      scoreboardCount: scoreboardCandidates.length,
     };
   });
 
@@ -289,8 +302,8 @@ export const resolveResults = createServerFn({ method: "POST" })
 export const generateTodayPredictions = createServerFn({ method: "POST" })
   .handler(async () => {
     const now = Date.now();
-    const cutoffStart = now - 30 * 60_000;
-    const cutoffEnd = now + 24 * 3600_000;
+    const cutoffStart = now - TODAY_TIPS_GRACE_MS;
+    const cutoffEnd = now + TODAY_TIPS_HORIZON_MS;
 
     type Candidate = {
       leagueId: string;

@@ -4,6 +4,7 @@ import { Brain } from "lucide-react";
 import { MatchDateTime } from "@/components/MatchDateTime";
 import { BttsDisplay } from "@/components/BttsDisplay";
 import { extractBtts } from "@/lib/prediction-meta";
+import { parseBttsReason } from "@/lib/btts-model";
 import { outcomeToTip, isExactScore } from "@/lib/match-outcome";
 import type { BttsCall, PredictionListRow, PostmortemData } from "@/lib/prediction-types";
 
@@ -70,7 +71,7 @@ export function PredictionResultsTable({
                 ? leagueNameOf(r.league_id)
                 : r.league_id ?? "";
 
-            const tip = outcomeToTip(r.predicted_outcome);
+            const tip = r.predicted_outcome ? outcomeToTip(r.predicted_outcome) : "—";
 
             const rawDate = r.event_date ?? r.created_at ?? null;
             const dateTimeVariant: "time-date" | "date" =
@@ -217,7 +218,9 @@ function PrematchAnalysisRow({
   const hasPcts = isFinite(h) && isFinite(d) && isFinite(a) && (h + d + a) > 0;
   const fmtPct = (n: number) => `${Math.round(n)}%`;
   const top = hasPcts ? Math.max(h, d, a) : 0;
-  const hasContent = factors.length > 0 || !!bettingTip || !!bttsReason || hasPcts;
+  const bttsDetails = parseBttsReason(bttsReason);
+  const hasBttsPcts = bttsDetails.yesPct != null && bttsDetails.noPct != null;
+  const hasContent = factors.length > 0 || !!bettingTip || !!bttsReason || hasPcts || hasBttsPcts;
   if (!hasContent) {
     return (
       <tr className="border-t border-border/30 bg-muted/10">
@@ -250,8 +253,30 @@ function PrematchAnalysisRow({
                   </span>
                 </span>
               )}
+              {hasBttsPcts && (
+                <span className="inline-flex items-center gap-1.5 tabular-nums text-[11px] shrink-0">
+                  <span
+                    className={`px-1.5 py-0.5 rounded ${
+                      bttsCall === "ja"
+                        ? "bg-emerald-500/20 text-emerald-300 font-medium"
+                        : "bg-secondary/60 text-muted-foreground"
+                    }`}
+                  >
+                    Ja {Math.round(bttsDetails.yesPct!)}%
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded ${
+                      bttsCall === "nej"
+                        ? "bg-amber-500/20 text-amber-300 font-medium"
+                        : "bg-secondary/60 text-muted-foreground"
+                    }`}
+                  >
+                    Nej {Math.round(bttsDetails.noPct!)}%
+                  </span>
+                </span>
+              )}
               <span className="text-foreground/90 break-words">
-                {bettingTip ?? factors[0] ?? "Visa nyckelfaktorer"}
+                {bettingTip ?? factors[0] ?? (hasBttsPcts ? "Visa analys" : "Visa nyckelfaktorer")}
               </span>
             </summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -303,10 +328,23 @@ function PrematchAnalysisRow({
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
                       Båda mål ({bttsCall ?? "—"})
+                      {bttsDetails.confidence ? ` · ${bttsDetails.confidence} säkerhet` : ""}
                     </div>
-                    <div className="text-foreground/80 break-words">
-                      {bttsReason}
-                    </div>
+                    {hasBttsPcts && (
+                      <div className="flex gap-3 mb-1 text-xs tabular-nums">
+                        <span className={bttsCall === "ja" ? "text-emerald-300 font-medium" : "text-muted-foreground"}>
+                          Ja {Math.round(bttsDetails.yesPct!)}%
+                        </span>
+                        <span className={bttsCall === "nej" ? "text-amber-300 font-medium" : "text-muted-foreground"}>
+                          Nej {Math.round(bttsDetails.noPct!)}%
+                        </span>
+                      </div>
+                    )}
+                    {bttsDetails.explanation && (
+                      <div className="text-foreground/80 break-words">
+                        {bttsDetails.explanation}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
