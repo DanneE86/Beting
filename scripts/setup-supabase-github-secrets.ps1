@@ -15,11 +15,62 @@ function Resolve-GhPath {
   throw "GitHub CLI hittades inte. Installera med: winget install --id GitHub.cli"
 }
 
-function Read-SecretValue([string]$Prompt) {
-  $secure = Read-Host $Prompt -AsSecureString
-  return [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-    [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-  )
+function Normalize-SecretValue([string]$Value) {
+  if ($null -eq $Value) { return "" }
+  $normalized = [string]$Value
+  $normalized = $normalized.Replace([string][char]0x200B, "")
+  $normalized = $normalized.Replace([string][char]0x200C, "")
+  $normalized = $normalized.Replace([string][char]0x200D, "")
+  $normalized = $normalized.Replace([string][char]0xFEFF, "")
+  $normalized = $normalized.Trim()
+  $normalized = $normalized.Trim('"')
+  $normalized = $normalized.Trim("'")
+  return $normalized
+}
+
+function Read-SecretValue([string]$Prompt, [switch]$AsSecure) {
+  if ($AsSecure) {
+    $secure = Read-Host $Prompt -AsSecureString
+    return Normalize-SecretValue(
+      [Runtime.InteropServices.Marshal]::PtrToStringBSTR(
+        [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+      )
+    )
+  }
+
+  return Normalize-SecretValue((Read-Host $Prompt))
+}
+
+function Read-TokenFromClipboardOrPrompt([string]$Prompt) {
+  $clipboard = ""
+  try {
+    $clipboard = Normalize-SecretValue((Get-Clipboard -Raw))
+  } catch {
+    $clipboard = ""
+  }
+
+  if ($clipboard -match '^sbp_[A-Za-z0-9]+$') {
+    Write-Host "Hittade giltig SUPABASE_ACCESS_TOKEN i urklipp. Använder den automatiskt." -ForegroundColor Green
+    return $clipboard
+  }
+
+  Write-Host "Kopiera nu tokenen från Supabase-sidan och tryck sedan Enter här för att läsa från urklipp." -ForegroundColor Yellow
+  [void](Read-Host "Tryck Enter när tokenen är kopierad")
+
+  $clipboard = ""
+  try {
+    $clipboard = Normalize-SecretValue((Get-Clipboard -Raw))
+  } catch {
+    $clipboard = ""
+  }
+
+  if ($clipboard -match '^sbp_[A-Za-z0-9]+$') {
+    Write-Host "Läste giltig SUPABASE_ACCESS_TOKEN från urklipp." -ForegroundColor Green
+    return $clipboard
+  }
+
+  Write-Host "Urklipp innehöll inte en giltig token. Klistra in tokenen manuellt nedan." -ForegroundColor Yellow
+  return Read-SecretValue $Prompt
 }
 
 function Get-RepoSlug {
@@ -56,14 +107,14 @@ if (-not $SupabaseAccessToken) {
   Write-Host ""
   Write-Host "Öppnar Supabase token-sidan..." -ForegroundColor Cyan
   Start-Process "https://supabase.com/dashboard/account/tokens"
-  $SupabaseAccessToken = Read-SecretValue "Klistra in SUPABASE_ACCESS_TOKEN"
+  $SupabaseAccessToken = Read-TokenFromClipboardOrPrompt "Klistra in SUPABASE_ACCESS_TOKEN"
 }
 
 if (-not $SupabaseDbPassword) {
   Write-Host ""
   Write-Host "Öppnar Supabase Database Settings..." -ForegroundColor Cyan
   Start-Process "https://supabase.com/dashboard/project/$projectRef/database/settings"
-  $SupabaseDbPassword = Read-SecretValue "Klistra in SUPABASE_DB_PASSWORD"
+  $SupabaseDbPassword = Read-SecretValue "Klistra in SUPABASE_DB_PASSWORD" -AsSecure
 }
 
 if (-not $SupabaseAccessToken) {
@@ -72,6 +123,13 @@ if (-not $SupabaseAccessToken) {
 
 if (-not $SupabaseDbPassword) {
   throw "SUPABASE_DB_PASSWORD saknas."
+}
+
+$SupabaseAccessToken = Normalize-SecretValue($SupabaseAccessToken)
+$SupabaseDbPassword = Normalize-SecretValue($SupabaseDbPassword)
+
+if ($SupabaseAccessToken -notmatch '^sbp_[A-Za-z0-9]+$') {
+  throw "Ogiltigt SUPABASE_ACCESS_TOKEN-format. Det måste börja med sbp_ och inte innehålla citattecken eller extra text."
 }
 
 Write-Host ""

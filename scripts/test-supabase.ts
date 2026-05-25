@@ -13,6 +13,12 @@ const tables = [
   "archived_predictions",
   "league_season_state",
   "league_prompts",
+  "league_model_params",
+  "opta_cache",
+  "trav_horse_cache",
+  "trav_predictions",
+  "trav_learning_prompts",
+  "model_learning_prompts",
 ];
 
 async function main() {
@@ -65,6 +71,9 @@ async function main() {
     predicted_outcome: "D",
     confidence: "låg",
     betting_tip: "Anslutningstest",
+    model_version: 1,
+    market_odds_open: { home: 2.1, draw: 3.2, away: 3.6 },
+    market_odds_last: { home: 2.05, draw: 3.25, away: 3.75 },
   };
 
   const { data: inserted, error: insertErr } = await admin

@@ -4,7 +4,28 @@ param(
 )
 
 $projectRef = "revmfdtofyewbwwdcrju"
-$sqlFile = Join-Path (Join-Path $PSScriptRoot "..") "supabase\setup-complete.sql"
+$repoRoot = Join-Path $PSScriptRoot ".."
+
+function Test-DatabaseReady {
+  Write-Host ""
+  Write-Host "Verifierar databasen..." -ForegroundColor DarkGray
+  npm run test:db
+  return ($LASTEXITCODE -eq 0)
+}
+
+Push-Location $repoRoot
+
+if (Test-DatabaseReady) {
+  Write-Host ""
+  Write-Host "Databasen ar redan redo." -ForegroundColor Green
+  Pop-Location
+  exit 0
+}
+
+if ($LASTEXITCODE -ne 0) {
+  Write-Host ""
+  Write-Host "Databasen ar inte fullstandigt initialiserad annu." -ForegroundColor Yellow
+}
 
 if (-not $DbPassword) {
   Write-Host ""
@@ -27,31 +48,35 @@ if (-not $DbPassword) {
 
 $encoded = [uri]::EscapeDataString($DbPassword)
 $hosts = @(
-  "postgresql://postgres.${projectRef}:${encoded}@db.${projectRef}.supabase.co:5432/postgres",
+  "postgresql://postgres.${projectRef}:${encoded}@aws-0-eu-west-1.pooler.supabase.com:6543/postgres",
   "postgresql://postgres.${projectRef}:${encoded}@aws-0-eu-central-1.pooler.supabase.com:6543/postgres",
-  "postgresql://postgres.${projectRef}:${encoded}@aws-0-eu-west-1.pooler.supabase.com:6543/postgres"
+  "postgresql://postgres.${projectRef}:${encoded}@db.${projectRef}.supabase.co:5432/postgres"
 )
 
-Push-Location (Join-Path $PSScriptRoot "..")
 $ok = $false
 foreach ($dbUrl in $hosts) {
-  Write-Host "Forsoker ansluta..." -ForegroundColor DarkGray
-  npx supabase db query -f $sqlFile --db-url $dbUrl 2>&1 | Out-Host
+  Write-Host "Forsoker ansluta och kora migrationer..." -ForegroundColor DarkGray
+  npx supabase db push --include-all --yes --db-url $dbUrl 2>&1 | Out-Host
   if ($LASTEXITCODE -eq 0) {
     $ok = $true
     break
   }
 }
-Pop-Location
 
-if ($ok) {
+if (Test-DatabaseReady) {
   Write-Host ""
-  Write-Host "Tabeller skapade! Testar..." -ForegroundColor Green
-  npm run test:db
+  if ($ok) {
+    Write-Host "Migrationer klara och databasen verifierad." -ForegroundColor Green
+  } else {
+    Write-Host "Databasen var redan satt upp trots migrationsfelet." -ForegroundColor Green
+  }
+  Pop-Location
+  exit 0
 } else {
   Write-Host ""
-  Write-Host "Kunde inte ansluta automatiskt." -ForegroundColor Red
+  Write-Host "Kunde inte fa databasen i fungerande skick automatiskt." -ForegroundColor Red
   Write-Host "Kor i stallet: npm run setup:sql" -ForegroundColor Yellow
-  Write-Host "(kopierar SQL + oppnar webblasaren — klistra in och klicka Run)"
+  Write-Host "(kopierar SQL + oppnar webblasaren - klistra in och klicka Run)"
+  Pop-Location
   exit 1
 }
