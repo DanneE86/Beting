@@ -19,6 +19,7 @@ dist-ssr
 .env.*
 !.env.example
 .opta/
+supabase/.temp/
 
 # Wrangler / Cloudflare
 .wrangler/

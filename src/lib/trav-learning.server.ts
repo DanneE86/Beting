@@ -582,7 +582,7 @@ async function resolveTravPredictionRow(
   rowId: string,
   snapshot: FetchSnapshot,
   game: AtgGame,
-): Promise<boolean> {
+): Promise<TravPostmortem | null> {
   const resolvedData = extractTravResult(game);
   const hitSummary = buildSystemHitSummary(snapshot.system, resolvedData);
   const aiPostmortem = await generateTravPostmortemAI(snapshot, resolvedData, hitSummary);
@@ -606,9 +606,9 @@ async function resolveTravPredictionRow(
     .eq("id", rowId);
   if (error) {
     console.error("resolveTravPredictionRow update failed", error);
-    return false;
+    return null;
   }
-  return true;
+  return postmortem;
 }
 
 function extractLessons(postmortem: unknown): string[] {
@@ -737,8 +737,8 @@ export async function resolvePendingTravPredictions(limit = 20) {
     const game = await fetchGame(row.game_id).catch(() => null);
     if (!game || game.status !== "results") continue;
 
-    const ok = await resolveTravPredictionRow(row.id, snapshot, game);
-    if (!ok) {
+    const postmortem = await resolveTravPredictionRow(row.id, snapshot, game);
+    if (!postmortem) {
       continue;
     }
     resolved++;
@@ -806,6 +806,7 @@ export async function backtestTravHistory(input: {
         includeAndelsspel: false,
         includeTravsport: true,
         travsportDbCache: hybridTravsportCache,
+        travsportAllowStaleCache: true,
       });
       const snapshotWithMeta: FetchSnapshot = {
         ...snapshot,
@@ -826,19 +827,11 @@ export async function backtestTravHistory(input: {
       });
       if (!rowId) continue;
 
-      const ok = await resolveTravPredictionRow(rowId, snapshotWithMeta, fullGame);
-      if (!ok) continue;
+      const postmortem = await resolveTravPredictionRow(rowId, snapshotWithMeta, fullGame);
+      if (!postmortem) continue;
 
       const resolvedData = extractTravResult(fullGame);
       const hitSummary = buildSystemHitSummary(snapshotWithMeta.system, resolvedData);
-      const postmortem =
-        (await supabaseAdmin
-          .from("trav_predictions")
-          .select("postmortem_json")
-          .eq("id", rowId)
-          .maybeSingle()
-          .then((res) => res.data?.postmortem_json as { summary?: string; lessons?: string[] } | null)
-          .catch(() => null)) ?? null;
 
       rows.push({
         id: rowId,
@@ -848,8 +841,8 @@ export async function backtestTravHistory(input: {
         correctLegs: hitSummary.correctLegs,
         totalLegs: hitSummary.totalLegs,
         payoutAmountKr: hitSummary.payoutAmountKr,
-        summary: postmortem?.summary ?? `${hitSummary.correctLegs}/${hitSummary.totalLegs} rätt`,
-        lessons: Array.isArray(postmortem?.lessons) ? postmortem!.lessons.slice(0, 3) : [],
+        summary: postmortem.summary ?? `${hitSummary.correctLegs}/${hitSummary.totalLegs} rätt`,
+        lessons: Array.isArray(postmortem.lessons) ? postmortem.lessons.slice(0, 3) : [],
       });
     }
   }

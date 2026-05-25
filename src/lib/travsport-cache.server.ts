@@ -11,6 +11,24 @@ export async function getTravsportFromDb(horseId: number): Promise<TravsportHors
   return data.payload as TravsportHorseProfile;
 }
 
+export async function getTravsportManyFromDb(
+  horseIds: number[],
+): Promise<Record<number, TravsportHorseProfile>> {
+  if (horseIds.length === 0) return {};
+  const { data, error } = await supabaseAdmin
+    .from("trav_horse_cache")
+    .select("horse_id, payload")
+    .in("horse_id", horseIds);
+  if (error || !data) return {};
+  return Object.fromEntries(
+    data.flatMap((row) => {
+      const horseId = Number(row.horse_id);
+      if (!Number.isFinite(horseId)) return [];
+      return [[horseId, row.payload as TravsportHorseProfile] as const];
+    }),
+  );
+}
+
 export async function saveTravsportToDb(profile: TravsportHorseProfile): Promise<void> {
   const { error } = await supabaseAdmin.from("trav_horse_cache").upsert({
     horse_id: profile.horseId,

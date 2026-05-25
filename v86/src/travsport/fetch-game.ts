@@ -7,7 +7,14 @@ const CONCURRENCY = 6;
 const MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 export type TravsportCacheBackend = {
-  get: (horseId: number) => Promise<TravsportHorseProfile | null>;
+  get: (
+    horseId: number,
+    options?: TravsportCacheReadOptions,
+  ) => Promise<TravsportHorseProfile | null>;
+  getMany?: (
+    horseIds: number[],
+    options?: TravsportCacheReadOptions,
+  ) => Promise<Record<number, TravsportHorseProfile>>;
   set: (profile: TravsportHorseProfile) => Promise<void>;
 };
 
@@ -27,10 +34,15 @@ function isFresh(profile: { fetchedAt: string }): boolean {
   return Date.now() - new Date(profile.fetchedAt).getTime() <= MAX_AGE_MS;
 }
 
+export type TravsportCacheReadOptions = {
+  allowStale?: boolean;
+};
+
 export interface FetchGameTravsportOptions {
   useCache?: boolean;
   trackName?: string;
   dbCache?: TravsportCacheBackend;
+  allowStaleCache?: boolean;
 }
 
 export async function fetchTravsportForGame(
@@ -38,6 +50,7 @@ export async function fetchTravsportForGame(
   options: FetchGameTravsportOptions = {},
 ): Promise<TravsportIndex> {
   const useCache = options.useCache !== false;
+  const allowStaleCache = options.allowStaleCache === true;
   const index: TravsportIndex = {};
   const db = options.dbCache;
 
@@ -58,14 +71,13 @@ export async function fetchTravsportForGame(
   const unique = new Map<number, (typeof tasks)[0]>();
   for (const t of tasks) unique.set(t.horseId, t);
 
+  const cachedProfiles = useCache && db ? await loadCachedProfiles([...unique.keys()], db) : {};
+
   await mapPool([...unique.values()], CONCURRENCY, async (task) => {
-    let cachedProfile: TravsportHorseProfile | null = null;
-    if (useCache && db) {
-      cachedProfile = await db.get(task.horseId);
-      if (cachedProfile && isFresh(cachedProfile)) {
-        index[task.horseId] = cachedProfile;
-        return;
-      }
+    const cachedProfile = cachedProfiles[task.horseId] ?? null;
+    if (cachedProfile && (allowStaleCache || isFresh(cachedProfile))) {
+      index[task.horseId] = cachedProfile;
+      return;
     }
 
     try {
@@ -75,6 +87,7 @@ export async function fetchTravsportForGame(
         driverId: task.driverId,
       });
       index[task.horseId] = profile;
+      cachedProfiles[task.horseId] = profile;
       if (db) await db.set(profile);
     } catch (e) {
       if (cachedProfile) {
@@ -87,4 +100,25 @@ export async function fetchTravsportForGame(
   });
 
   return index;
+}
+
+async function loadCachedProfiles(
+  horseIds: number[],
+  db: TravsportCacheBackend,
+): Promise<Record<number, TravsportHorseProfile>> {
+  if (horseIds.length === 0) return {};
+  if (db.getMany) {
+    return db.getMany(horseIds, { allowStale: true });
+  }
+
+  const entries = await Promise.all(
+    horseIds.map(async (horseId) => {
+      const profile = await db.get(horseId, { allowStale: true });
+      return profile ? ([horseId, profile] as const) : null;
+    }),
+  );
+
+  return Object.fromEntries(
+    entries.filter((entry): entry is readonly [number, TravsportHorseProfile] => entry != null),
+  );
 }

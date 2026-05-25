@@ -26,6 +26,7 @@ export interface PipelineInput {
   includeAndelsspel?: boolean;
   includeTravsport?: boolean;
   travsportDbCache?: import("./travsport/fetch-game").FetchGameTravsportOptions["dbCache"];
+  travsportAllowStaleCache?: boolean;
 }
 
 export interface GameOption {
@@ -227,6 +228,7 @@ export async function buildSnapshotFromGame(
     travsportIndex = await fetchTravsportForGame(game, {
       useCache: true,
       dbCache: input.travsportDbCache,
+      allowStaleCache: input.travsportAllowStaleCache,
     });
     travsportCount = Object.keys(travsportIndex).length;
   }

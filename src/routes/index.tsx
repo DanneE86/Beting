@@ -49,6 +49,7 @@ import { ProbBar } from "@/components/ProbBar";
 import { LeagueSelect } from "@/components/LeagueSelect";
 import { LeagueFilterBar } from "@/components/LeagueFilterBar";
 import { SkeletonGrid, EmptyState, MiniStat } from "@/components/common";
+import { SiteSectionTabs } from "@/components/SiteSectionTabs";
 
 
 // Cuper sist, övriga ligor alfabetiskt
@@ -186,7 +187,7 @@ function Dashboard() {
     <main className="min-h-screen">
       <Toaster theme="dark" position="top-right" />
       <header className="border-b border-border/60 backdrop-blur-md bg-background/40 sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6 py-5 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="size-9 rounded-md bg-primary text-primary-foreground grid place-items-center font-display font-bold">
               P
@@ -201,6 +202,9 @@ function Dashboard() {
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="size-2 rounded-full bg-live live-dot" />
             Live data via ESPN (öppet API)
+          </div>
+          <div className="basis-full">
+            <SiteSectionTabs />
           </div>
         </div>
       </header>
