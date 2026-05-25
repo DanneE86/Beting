@@ -10,7 +10,7 @@ export const Route = createFileRoute("/v86")({
 function V86Layout() {
   return (
     <div className="min-h-screen bg-[#0c1410] text-[#e8f0ea]">
-      <header className="border-b border-[#1e3d2a]/80 bg-[#0f1a14]/95 backdrop-blur sticky top-0 z-10">
+      <header className="sticky top-0 z-10 border-b border-[#1e3d2a]/80 bg-[#0f1a14]/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#1a5c38] text-[#b8f0d0]">

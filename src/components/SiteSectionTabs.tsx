@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Activity, Flag } from "lucide-react";
+import { Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const linkClass =
@@ -25,18 +25,6 @@ export function SiteSectionTabs({ className }: { className?: string }) {
       >
         <Activity className="size-4" />
         Fotboll
-      </Link>
-      <Link
-        to="/v86"
-        activeProps={{
-          className: cn(linkClass, "bg-primary text-primary-foreground"),
-        }}
-        inactiveProps={{
-          className: cn(linkClass, "text-muted-foreground hover:bg-secondary hover:text-foreground"),
-        }}
-      >
-        <Flag className="size-4" />
-        Trav & hästar
       </Link>
     </div>
   );

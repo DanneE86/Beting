@@ -41,6 +41,12 @@ function daysAgoIso(days: number) {
   return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
 }
 
+const DEFAULT_TRAV_BUDGET_KR = 500;
+const DEFAULT_DD_BUDGET_KR = 50;
+const DEFAULT_TRAV_MIN_PAYOUT_KR = 30_000;
+const DEFAULT_DD_MIN_PAYOUT_KR = 5_000;
+const DEFAULT_BACKTEST_GAMES = 10;
+
 function formatMarks(snapshot: FetchSnapshot): string {
   return snapshot.system.selections
     .map((s) => s.picks.join(","))
@@ -118,14 +124,15 @@ function V86Dashboard() {
   const queryClient = useQueryClient();
   const [date, setDate] = useState(todayIso);
   const [gameId, setGameId] = useState<string>("");
-  const [budgetKr, setBudgetKr] = useState(400);
-  const [minPayout, setMinPayout] = useState(30_000);
+  const [budgetKr, setBudgetKr] = useState(DEFAULT_TRAV_BUDGET_KR);
+  const [minPayout, setMinPayout] = useState(DEFAULT_TRAV_MIN_PAYOUT_KR);
   const [copied, setCopied] = useState(false);
   const [expandedHorse, setExpandedHorse] = useState<string | null>(null);
+  const [showAllLegs, setShowAllLegs] = useState<Record<number, boolean>>({});
   const [backtestType, setBacktestType] = useState<"V86" | "V85">("V86");
   const [backtestFromDate, setBacktestFromDate] = useState(daysAgoIso(90));
   const [backtestToDate, setBacktestToDate] = useState(todayIso());
-  const [backtestMaxGames, setBacktestMaxGames] = useState(6);
+  const [backtestMaxGames, setBacktestMaxGames] = useState(DEFAULT_BACKTEST_GAMES);
 
   const gamesQ = useQuery({
     queryKey: ["v86-games", date],
@@ -148,11 +155,11 @@ function V86Dashboard() {
     if (preferred && (!gameId || !games.some((g) => g.id === gameId))) {
       setGameId(preferred.id);
       if (preferred.type === "dd") {
-        setBudgetKr(50);
-        setMinPayout(5_000);
+        setBudgetKr(DEFAULT_DD_BUDGET_KR);
+        setMinPayout(DEFAULT_DD_MIN_PAYOUT_KR);
       } else if (preferred.type === "V85" || preferred.type === "V86") {
-        setBudgetKr(400);
-        setMinPayout(30_000);
+        setBudgetKr(DEFAULT_TRAV_BUDGET_KR);
+        setMinPayout(DEFAULT_TRAV_MIN_PAYOUT_KR);
       }
     }
   }, [games, gameId]);
@@ -160,8 +167,11 @@ function V86Dashboard() {
   useEffect(() => {
     if (!selectedGame) return;
     if (selectedGame.type === "dd") {
-      setBudgetKr((b) => (b === 400 ? 50 : b));
-      setMinPayout((m) => (m === 30_000 ? 5_000 : m));
+      setBudgetKr((b) => (b === DEFAULT_TRAV_BUDGET_KR ? DEFAULT_DD_BUDGET_KR : b));
+      setMinPayout((m) => (m === DEFAULT_TRAV_MIN_PAYOUT_KR ? DEFAULT_DD_MIN_PAYOUT_KR : m));
+    } else if (selectedGame.type === "V85" || selectedGame.type === "V86") {
+      setBudgetKr((b) => (b === DEFAULT_DD_BUDGET_KR ? DEFAULT_TRAV_BUDGET_KR : b));
+      setMinPayout((m) => (m === DEFAULT_DD_MIN_PAYOUT_KR ? DEFAULT_TRAV_MIN_PAYOUT_KR : m));
     }
   }, [selectedGame?.id, selectedGame?.type]);
 
@@ -242,6 +252,11 @@ function V86Dashboard() {
     const fromHistory = historyQ.data?.prompts?.find((item) => item.game_type === currentType)?.prompt_text;
     return (fromHistory ?? snapshot?.meta?.learningPromptText ?? "").trim() || null;
   }, [historyQ.data?.prompts, selectedGame?.type, snapshot?.game.type, snapshot?.meta?.learningPromptText]);
+
+  useEffect(() => {
+    setShowAllLegs({});
+    setExpandedHorse(null);
+  }, [snapshot?.game.id]);
 
   async function copyMarks() {
     if (!marksText) return;
@@ -455,102 +470,122 @@ function V86Dashboard() {
           </Card>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            {snapshot.legs.map((leg) => (
-              <Card
-                key={leg.leg}
-                className="border-[#1e3d2a] bg-[#111c16] p-4 shadow-none"
-              >
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="font-medium text-[#d4f5e2]">
-                    Avd {leg.leg}
-                    {leg.raceName ? ` — ${leg.raceName}` : ""}
-                  </h3>
-                  <Badge
-                    variant="outline"
-                    className="border-[#1e3d2a] text-[#7fa892] uppercase"
-                  >
-                    {leg.recommendation}
-                  </Badge>
-                </div>
-                {leg.tipNote && (
-                  <p className="mb-2 text-xs text-[#7fa892]">{leg.tipNote}</p>
-                )}
-                <ul className="space-y-1">
-                  {leg.horses.slice(0, 6).map((h) => {
-                    const key = `${leg.leg}-${h.number}`;
-                    const open = expandedHorse === key;
-                    return (
-                      <Fragment key={h.number}>
-                        <li>
-                          <button
-                            type="button"
-                            onClick={() => setExpandedHorse(open ? null : key)}
-                            className="flex w-full items-center justify-between rounded px-1 py-1 text-left text-sm hover:bg-[#1a2e22]"
-                          >
-                            <span className="text-[#e8f0ea]">
-                              <span className="font-mono text-[#5ec98a]">{h.number}.</span>{" "}
-                              {h.name}
-                              <span className="ml-1 text-[10px] text-[#5ec98a]">
-                                {(h.combinedScore * 100).toFixed(0)}%
+            {snapshot.legs.map((leg) => {
+              const showAll = Boolean(showAllLegs[leg.leg]);
+              const visibleHorses = showAll ? leg.horses : leg.horses.slice(0, 6);
+              return (
+                <Card
+                  key={leg.leg}
+                  className="border-[#1e3d2a] bg-[#111c16] p-4 shadow-none"
+                >
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="font-medium text-[#d4f5e2]">
+                      Avd {leg.leg}
+                      {leg.raceName ? ` — ${leg.raceName}` : ""}
+                    </h3>
+                    <Badge
+                      variant="outline"
+                      className="border-[#1e3d2a] text-[#7fa892] uppercase"
+                    >
+                      {leg.recommendation}
+                    </Badge>
+                  </div>
+                  {leg.tipNote && (
+                    <p className="mb-2 text-xs text-[#7fa892]">{leg.tipNote}</p>
+                  )}
+                  <ul className="space-y-1">
+                    {visibleHorses.map((h) => {
+                      const key = `${leg.leg}-${h.number}`;
+                      const open = expandedHorse === key;
+                      return (
+                        <Fragment key={h.number}>
+                          <li>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedHorse(open ? null : key)}
+                              className="flex w-full items-center justify-between rounded px-1 py-1 text-left text-sm hover:bg-[#1a2e22]"
+                            >
+                              <span className="text-[#e8f0ea]">
+                                <span className="font-mono text-[#5ec98a]">{h.number}.</span>{" "}
+                                {h.name}
+                                <span className="ml-1 text-[10px] text-[#5ec98a]">
+                                  {(h.combinedScore * 100).toFixed(0)}%
+                                </span>
                               </span>
-                            </span>
-                            <span className="tabular-nums text-[#7fa892]">
-                              {h.betDistribution.toFixed(1)}% spel
-                            </span>
-                          </button>
-                        </li>
-                        {open && (
-                          <li className="mb-2 ml-2 space-y-2 border-l border-[#2d6b45] pl-3 text-[11px]">
-                            <p className="text-[#b8f0d0]">
-                              Häst {(h.horseScore * 100).toFixed(0)}% · Kusk{" "}
-                              {(h.driverScore * 100).toFixed(0)}% · Form {h.formTrend}
-                            </p>
-                            {h.highlights.length > 0 && (
-                              <p className="text-[#7fa892]">{h.highlights.join(" · ")}</p>
-                            )}
-                            <div>
-                              <p className="font-medium text-[#5ec98a]">Häst – checklista</p>
-                              {h.horseChecklist.map((c) => (
-                                <div
-                                  key={c.id}
-                                  className={`flex justify-between gap-2 ${c.available ? "text-[#c8ddd2]" : "text-[#5a7a68]"}`}
-                                >
-                                  <span>{c.label}</span>
-                                  <span>
-                                    {c.available ? `${(c.score * 100).toFixed(0)}%` : "—"} · {c.note}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                            <div>
-                              <p className="font-medium text-[#5ec98a]">Kusk – checklista</p>
-                              {h.driverChecklist.map((c) => (
-                                <div
-                                  key={c.id}
-                                  className={`flex justify-between gap-2 ${c.available ? "text-[#c8ddd2]" : "text-[#5a7a68]"}`}
-                                >
-                                  <span>{c.label}</span>
-                                  <span>
-                                    {c.available ? `${(c.score * 100).toFixed(0)}%` : "—"} · {c.note}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
+                              <span className="tabular-nums text-[#7fa892]">
+                                {h.betDistribution.toFixed(1)}% spel
+                              </span>
+                            </button>
                           </li>
-                        )}
-                      </Fragment>
-                    );
-                  })}
-                </ul>
-                {leg.skrellSpike && (
-                  <p className="mt-3 flex items-center gap-1 text-xs text-[#f0c674]">
-                    <TrendingUp className="h-3.5 w-3.5" />
-                    Skräll: {leg.skrellSpike.number}. {leg.skrellSpike.name} (
-                    {leg.skrellSpike.betDistribution.toFixed(1)}%)
-                  </p>
-                )}
-              </Card>
-            ))}
+                          {open && (
+                            <li className="mb-2 ml-2 space-y-2 border-l border-[#2d6b45] pl-3 text-[11px]">
+                              <p className="text-[#b8f0d0]">
+                                Häst {(h.horseScore * 100).toFixed(0)}% · Kusk{" "}
+                                {(h.driverScore * 100).toFixed(0)}% · Form {h.formTrend}
+                              </p>
+                              {h.highlights.length > 0 && (
+                                <p className="text-[#7fa892]">{h.highlights.join(" · ")}</p>
+                              )}
+                              <div>
+                                <p className="font-medium text-[#5ec98a]">Häst – checklista</p>
+                                {h.horseChecklist.map((c) => (
+                                  <div
+                                    key={c.id}
+                                    className={`flex justify-between gap-2 ${c.available ? "text-[#c8ddd2]" : "text-[#5a7a68]"}`}
+                                  >
+                                    <span>{c.label}</span>
+                                    <span>
+                                      {c.available ? `${(c.score * 100).toFixed(0)}%` : "—"} · {c.note}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div>
+                                <p className="font-medium text-[#5ec98a]">Kusk – checklista</p>
+                                {h.driverChecklist.map((c) => (
+                                  <div
+                                    key={c.id}
+                                    className={`flex justify-between gap-2 ${c.available ? "text-[#c8ddd2]" : "text-[#5a7a68]"}`}
+                                  >
+                                    <span>{c.label}</span>
+                                    <span>
+                                      {c.available ? `${(c.score * 100).toFixed(0)}%` : "—"} · {c.note}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </li>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </ul>
+                  {leg.horses.length > 6 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-3 border-[#2d6b45] text-[#b8f0d0] hover:bg-[#1a5c38]/20"
+                      onClick={() =>
+                        setShowAllLegs((prev) => ({
+                          ...prev,
+                          [leg.leg]: !prev[leg.leg],
+                        }))
+                      }
+                    >
+                      {showAll ? "Visa topp 6" : `Visa alla (${leg.horses.length})`}
+                    </Button>
+                  )}
+                  {leg.skrellSpike && (
+                    <p className="mt-3 flex items-center gap-1 text-xs text-[#f0c674]">
+                      <TrendingUp className="h-3.5 w-3.5" />
+                      Skräll: {leg.skrellSpike.number}. {leg.skrellSpike.name} (
+                      {leg.skrellSpike.betDistribution.toFixed(1)}%)
+                    </p>
+                  )}
+                </Card>
+              );
+            })}
           </div>
 
           {snapshot.andelsspel && snapshot.andelsspel.length > 0 && (

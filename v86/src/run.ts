@@ -4,6 +4,7 @@ import { hybridTravsportCache } from "../../src/lib/travsport-cache-backend";
 import { saveTravPrediction } from "../../src/lib/trav-learning.server";
 import type { FetchSnapshot } from "./types";
 import { buildSnapshot, todayIso } from "./pipeline";
+import { defaultBudgetKr } from "./game-types";
 import { pickBestSkrellLeg } from "./analyze";
 
 function parseArgs(argv: string[]) {
@@ -72,10 +73,15 @@ function printReport(snapshot: FetchSnapshot) {
 
 export async function runV86Pipeline(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
+  const inferredGameType = args.game?.startsWith("dd_")
+    ? "dd"
+    : args.game?.startsWith("V85_")
+      ? "V85"
+      : "V86";
   const snapshot = await buildSnapshot({
     date: args.date ?? todayIso(),
     gameId: args.game ?? argv.find((a) => a.startsWith("V86_") || a.startsWith("V85_") || a.startsWith("dd_")),
-    budgetKr: Number(args.budget ?? 400),
+    budgetKr: Number(args.budget ?? defaultBudgetKr(inferredGameType)),
     targetMinPayoutKr: Number(args.minPayout ?? 30_000),
     travsportDbCache: hybridTravsportCache,
   });

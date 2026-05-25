@@ -156,4 +156,56 @@ describe("buildSystem", () => {
 
     expect(system.selections.every((selection) => selection.type === "gardering")).toBe(true);
   });
+
+  it("behåller skrällhästen i garderat lopp för bättre skrälltäckning", () => {
+    const legs: LegAnalysis[] = [
+      leg(
+        1,
+        "gardering",
+        [horse(1, 39, 0.7), horse(9, 8, 0.68, 2.1), horse(4, 17, 0.66), horse(6, 12, 0.6)],
+        1,
+        9,
+      ),
+      leg(2, "gardering", [horse(1, 35, 0.64), horse(3, 22, 0.6), horse(5, 14, 0.58)], 1),
+    ];
+
+    const system = buildSystem("dd_skrell_cover", "dd", legs, {
+      budgetKr: 30,
+      targetMinPayoutKr: 5000,
+    });
+
+    expect(system.selections.find((selection) => selection.leg === 1)?.picks).toContain(9);
+  });
+
+  it("lägger extra hästar först i öppet lopp med skrällpotential", () => {
+    const legs: LegAnalysis[] = [
+      leg(
+        1,
+        "gardering",
+        [horse(1, 42, 0.69), horse(2, 21, 0.63), horse(3, 12, 0.57), horse(4, 9, 0.54)],
+        1,
+      ),
+      leg(
+        2,
+        "bred",
+        [
+          horse(1, 24, 0.61),
+          horse(7, 18, 0.6, 1.95),
+          horse(3, 18, 0.59),
+          horse(5, 13, 0.58),
+          horse(9, 9, 0.57),
+          horse(11, 6, 0.55),
+        ],
+        1,
+      ),
+    ];
+
+    const system = buildSystem("dd_expand_priority", "dd", legs, {
+      budgetKr: 15,
+      targetMinPayoutKr: 5000,
+    });
+
+    expect(system.selections.find((selection) => selection.leg === 1)?.picks).toHaveLength(3);
+    expect(system.selections.find((selection) => selection.leg === 2)?.picks).toHaveLength(5);
+  });
 });

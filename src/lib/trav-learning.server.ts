@@ -15,6 +15,7 @@ import type {
 } from "../../v86/src/types";
 
 const TRAV_MODEL_VERSION = 1;
+const RECENT_TRAV_LEARNING_WINDOW = 10;
 
 export type TravResolvedLeg = {
   leg: number;
@@ -650,7 +651,7 @@ export async function updateTravLearningPrompt(gameType: PoolGameType): Promise<
     .eq("game_type", gameType)
     .not("resolved_at", "is", null)
     .order("resolved_at", { ascending: false })
-    .limit(60);
+    .limit(RECENT_TRAV_LEARNING_WINDOW);
 
   const lessons = topByFrequency((rows ?? []).flatMap((row) => extractLessons(row.postmortem_json)));
 
@@ -674,7 +675,7 @@ export async function updateTravLearningPrompt(gameType: PoolGameType): Promise<
             {
               role: "system",
               content:
-                "Du tränar en travmodell för V86/V85. Skriv en kort svensk träningsprompt med konkreta regler i imperativ, max 1200 tecken. Fokusera på systematiska mönster i resolverade tips.",
+                `Du tränar en travmodell för V86/V85. Skriv en kort svensk träningsprompt med konkreta regler i imperativ, max 1200 tecken. Fokusera på systematiska mönster i de ${RECENT_TRAV_LEARNING_WINDOW} senaste resolverade tipsen.`,
             },
             {
               role: "user",
@@ -775,7 +776,7 @@ export async function backtestTravHistory(input: {
   budgetKr?: number;
   targetMinPayoutKr?: number;
 }) {
-  const maxGames = Math.max(1, Math.min(input.maxGames ?? 6, 24));
+  const maxGames = Math.max(1, Math.min(input.maxGames ?? RECENT_TRAV_LEARNING_WINDOW, 24));
   const rows: Array<{
     id: string | null;
     gameId: string;
