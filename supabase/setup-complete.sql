@@ -32,12 +32,21 @@ CREATE TABLE IF NOT EXISTS public.predictions (
   hidden_from_today_at timestamptz,
   btts_call text,
   btts_reason text,
-  model_version integer DEFAULT 1
+  model_version integer DEFAULT 1,
+  market_odds_open jsonb,
+  market_odds_last jsonb,
+  market_odds_closing jsonb,
+  market_odds_opened_at timestamptz,
+  market_odds_last_seen_at timestamptz,
+  market_odds_closed_at timestamptz
 );
 
 CREATE INDEX IF NOT EXISTS predictions_league_idx ON public.predictions (league_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS predictions_unresolved_idx ON public.predictions (resolved_at) WHERE resolved_at IS NULL;
 CREATE INDEX IF NOT EXISTS predictions_event_idx ON public.predictions (event_id) WHERE event_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS predictions_market_odds_event_idx
+  ON public.predictions (event_id, market_odds_last_seen_at DESC)
+  WHERE event_id IS NOT NULL;
 
 ALTER TABLE public.predictions ENABLE ROW LEVEL SECURITY;
 

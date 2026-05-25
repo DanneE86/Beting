@@ -23,6 +23,12 @@ export type PredictionListRow = {
   home_win_pct?: number | string | null;
   draw_pct?: number | string | null;
   away_win_pct?: number | string | null;
+  market_odds_open?: unknown;
+  market_odds_last?: unknown;
+  market_odds_closing?: unknown;
+  market_odds_opened_at?: string | null;
+  market_odds_last_seen_at?: string | null;
+  market_odds_closed_at?: string | null;
 };
 
 export type { BttsCall };
@@ -47,6 +53,7 @@ export type PostmortemData = {
     xg?: { home: number; away: number };
     redCards?: { home: number; away: number };
   };
+  market_line?: string;
   generated_at?: string;
   model?: string;
 };

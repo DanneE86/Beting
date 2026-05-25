@@ -8,6 +8,7 @@
  *   npm run sync -- --help
  */
 import { backfillLeagueSeasons } from "../src/lib/archive-backfill";
+import { updateGlobalFootballPromptFromLatestMatches } from "../src/lib/football-global-learning.server";
 import {
   fetchArchivedRowsForLeague,
   trainLeagueFromRows,
@@ -156,7 +157,9 @@ async function runTrain(): Promise<string> {
     trained++;
     console.log(`    ${leagueId}: ${rows.length} matcher tränade`);
   }
-  return `${trained} ligor (${totalMatches} matcher granskade)`;
+  const footballGlobal = await updateGlobalFootballPromptFromLatestMatches(500);
+  console.log(`    football-global: ${footballGlobal.sampleCount} matcher + resolverade lärdomar`);
+  return `${trained} ligor (${totalMatches} matcher granskade) + football-global`;
 }
 
 const STEP_RUNNERS: Record<StepId, { label: string; run: () => Promise<string> }> = {

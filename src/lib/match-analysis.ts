@@ -5,6 +5,7 @@ import {
   type GoalTrendStats,
   type ScheduleMatchRow,
 } from "./form-stats";
+import type { RefereeProfile } from "./referee-profile";
 
 export type VenueRecord = {
   played: number;
@@ -65,6 +66,7 @@ export type PreMatchChecklistData = {
     referee: string | null;
     venue: string | null;
     matchNote: string | null;
+    refereeProfile?: RefereeProfile | null;
   } | null;
 };
 
@@ -451,6 +453,7 @@ export function buildTemplateMatchAnalysis(input: {
     marketProbPct: { home: number; draw: number; away: number };
     decimalOdds: { home: number | null; draw: number | null; away: number | null };
   } | null;
+  marketLineMovement?: string | null;
   modelPct?: { home: number; draw: number; away: number };
   homeAbsenceScore?: number;
   awayAbsenceScore?: number;
@@ -470,6 +473,7 @@ export function buildTemplateMatchAnalysis(input: {
     awayStanding,
     seasonContext,
     marketOdds,
+    marketLineMovement,
     modelPct,
   } = input;
 
@@ -558,11 +562,13 @@ export function buildTemplateMatchAnalysis(input: {
   const ovrigt = [
     c.eventMeta?.weather ? `Väder: ${c.eventMeta.weather}` : null,
     c.eventMeta?.referee ? `Domare: ${c.eventMeta.referee}` : null,
+    c.eventMeta?.refereeProfile?.note ? `Domarprofil: ${c.eventMeta.refereeProfile.note}` : null,
     c.eventMeta?.venue ? `Arena: ${c.eventMeta.venue}` : null,
     c.eventMeta?.matchNote ? `Matchkontext: ${c.eventMeta.matchNote}` : null,
     marketOdds
       ? `Marknad: 1 ${marketOdds.decimalOdds.home?.toFixed(2) ?? "—"} (${marketOdds.marketProbPct.home}%) · X ${marketOdds.decimalOdds.draw?.toFixed(2) ?? "—"} (${marketOdds.marketProbPct.draw}%) · 2 ${marketOdds.decimalOdds.away?.toFixed(2) ?? "—"} (${marketOdds.marketProbPct.away}%)`
       : "Marknadsodds saknas — jämför manuellt mot modellen.",
+    marketLineMovement ? marketLineMovement : null,
     modelPct && marketOdds
       ? `Modell vs marknad (1): ${(modelPct.home - marketOdds.marketProbPct.home).toFixed(1)}%-enheter`
       : null,

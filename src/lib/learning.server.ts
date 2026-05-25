@@ -7,8 +7,18 @@ import {
   type BttsCall,
 } from "./prediction-meta";
 import { espnGet, summaryUrl } from "./espn.api";
+import {
+  buildMarketLineMovement,
+  coerceMarketOddsSnapshot,
+  getMarketOdds,
+  type MarketOddsSnapshot,
+} from "./market-odds";
 import { brierScore, outcomeToTip } from "./match-outcome";
 import { pickOutcome } from "./poisson-model";
+
+function hasPredictionMarketOddsSchema(error: { message?: string; code?: string } | null | undefined) {
+  return !error || (!error.message?.includes("market_odds_") && error.code !== "PGRST204");
+}
 
 export type PredictionRow = {
   id: string;
@@ -58,6 +68,7 @@ export type Postmortem = {
     xg?: { home: number; away: number };
     redCards?: { home: number; away: number };
   };
+  market_line?: string;
   generated_at: string;
   model: string;
 };
@@ -82,15 +93,18 @@ export type SavePredictionInput = {
   bttsCall?: BttsCall;
   bttsReason?: string;
   matchAnalysis?: MatchAnalysisSections | null;
+  marketOdds?: MarketOddsSnapshot | null;
 };
 
 async function findOpenPredictionId(input: SavePredictionInput): Promise<{
   id: string;
   postmortem: unknown;
+  market_odds_open: unknown;
+  market_odds_last: unknown;
 } | null> {
   let q = supabaseAdmin
     .from("predictions")
-    .select("id, postmortem")
+    .select("id, postmortem, market_odds_open, market_odds_last")
     .eq("league_id", input.leagueId)
     .eq("home_id", input.homeId)
     .eq("away_id", input.awayId)
@@ -106,8 +120,41 @@ async function findOpenPredictionId(input: SavePredictionInput): Promise<{
   return data ?? null;
 }
 
+export async function getOpenPredictionMarketState(input: {
+  leagueId: string;
+  homeId: string;
+  awayId: string;
+  eventId?: string | null;
+}): Promise<{
+  marketOddsOpen: MarketOddsSnapshot | null;
+  marketOddsLast: MarketOddsSnapshot | null;
+  marketOddsClosing: MarketOddsSnapshot | null;
+} | null> {
+  let q = supabaseAdmin
+    .from("predictions")
+    .select("market_odds_open, market_odds_last, market_odds_closing")
+    .eq("league_id", input.leagueId)
+    .eq("home_id", input.homeId)
+    .eq("away_id", input.awayId)
+    .is("actual_outcome", null)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (input.eventId) {
+    q = q.eq("event_id", input.eventId);
+  }
+  const { data, error } = await q.maybeSingle();
+  if (!hasPredictionMarketOddsSchema(error)) return null;
+  if (!data) return null;
+  return {
+    marketOddsOpen: coerceMarketOddsSnapshot(data.market_odds_open),
+    marketOddsLast: coerceMarketOddsSnapshot(data.market_odds_last),
+    marketOddsClosing: coerceMarketOddsSnapshot((data as any).market_odds_closing),
+  };
+}
+
 export async function savePrediction(input: SavePredictionInput) {
   const predicted_outcome = pickOutcome(input.homeWinPct, input.drawPct, input.awayWinPct);
+  const nowIso = new Date().toISOString();
   const payload = {
     league_id: input.leagueId,
     home_id: input.homeId,
@@ -129,6 +176,10 @@ export async function savePrediction(input: SavePredictionInput) {
     btts_call: input.bttsCall ?? null,
     btts_reason: input.bttsReason ?? null,
     model_version: PREDICTION_MODEL_VERSION,
+    market_odds_open: input.marketOdds ?? null,
+    market_odds_last: input.marketOdds ?? null,
+    market_odds_opened_at: input.marketOdds ? nowIso : null,
+    market_odds_last_seen_at: input.marketOdds ? nowIso : null,
     postmortem: mergePreliminaryPostmortem(
       null,
       input.bttsCall,
@@ -139,21 +190,57 @@ export async function savePrediction(input: SavePredictionInput) {
 
   const existing = await findOpenPredictionId(input);
   if (existing) {
+    const marketOddsOpen = coerceMarketOddsSnapshot(existing.market_odds_open);
+    const marketOddsLast = coerceMarketOddsSnapshot(existing.market_odds_last);
     const postmortem = mergePreliminaryPostmortem(
       existing.postmortem,
       input.bttsCall,
       input.bttsReason,
       input.matchAnalysis,
     );
+    const updatePayload: Record<string, unknown> = {
+      ...payload,
+      postmortem,
+      market_odds_open: marketOddsOpen ?? input.marketOdds ?? null,
+      market_odds_last: input.marketOdds ?? marketOddsLast ?? null,
+    };
+    if (!marketOddsOpen && input.marketOdds) {
+      updatePayload.market_odds_opened_at = nowIso;
+    }
+    if (input.marketOdds) {
+      updatePayload.market_odds_last_seen_at = nowIso;
+    }
     const { error } = await supabaseAdmin
       .from("predictions")
-      .update({ ...payload, postmortem })
+      .update(updatePayload)
       .eq("id", existing.id);
+    if (error && !hasPredictionMarketOddsSchema(error)) {
+      const { error: fallbackError } = await supabaseAdmin
+        .from("predictions")
+        .update({
+          ...payload,
+          postmortem,
+        })
+        .eq("id", existing.id);
+      if (fallbackError) console.error("savePrediction update fallback failed", fallbackError);
+      return;
+    }
     if (error) console.error("savePrediction update failed", error);
     return;
   }
 
   const { error } = await supabaseAdmin.from("predictions").insert(payload);
+  if (error && !hasPredictionMarketOddsSchema(error)) {
+    const { error: fallbackError } = await supabaseAdmin.from("predictions").insert({
+      ...payload,
+      market_odds_open: undefined,
+      market_odds_last: undefined,
+      market_odds_opened_at: undefined,
+      market_odds_last_seen_at: undefined,
+    });
+    if (fallbackError) console.error("savePrediction insert fallback failed", fallbackError);
+    return;
+  }
   if (error) console.error("savePrediction insert failed", error);
 }
 
@@ -530,6 +617,7 @@ async function generatePostmortemAI(input: {
   exactScore: boolean;
   stats?: Postmortem["match_stats"];
   keyFactors?: string[] | null;
+  marketLine?: string | null;
 }): Promise<Postmortem | null> {
   const apiKey = process.env.LOVABLE_API_KEY;
   if (!apiKey) return null;
@@ -555,6 +643,7 @@ Sannolikheter modellen gav: 1=${input.homePct}% X=${input.drawPct}% 2=${input.aw
 Faktiskt utfall: ${input.actualOutcome === "H" ? "1" : input.actualOutcome === "A" ? "2" : "X"}
 Resultatet är ${input.hit1x2 ? "RÄTT 1X2" : "FEL 1X2"}${input.exactScore ? " och EXAKT RESULTAT" : ""}.
 ${input.keyFactors?.length ? `Faktorer modellen vägde in: ${input.keyFactors.join("; ")}` : ""}
+${input.marketLine ? `Linjerörelse/close-proxy: ${input.marketLine}` : ""}
 ${input.stats ? `Matchstatistik: ${JSON.stringify(input.stats)}` : "Matchstatistik saknas."}`;
 
   const baseProps: Record<string, unknown> = {
@@ -629,6 +718,7 @@ ${input.stats ? `Matchstatistik: ${JSON.stringify(input.stats)}` : "Matchstatist
       signals_missed: Array.isArray(parsed.signals_missed) ? parsed.signals_missed.map(String) : undefined,
       alternative_pick: parsed.alternative_pick ? String(parsed.alternative_pick) : undefined,
       match_stats: input.stats,
+      market_line: input.marketLine ?? undefined,
       generated_at: new Date().toISOString(),
       model,
     };
@@ -638,13 +728,23 @@ ${input.stats ? `Matchstatistik: ${JSON.stringify(input.stats)}` : "Matchstatist
 }
 
 export async function generatePostmortemForPrediction(predictionId: string) {
-  const { data: p } = await supabaseAdmin
+  let query = supabaseAdmin
     .from("predictions")
     .select(
-      "id, league_id, event_id, home_name, away_name, predicted_outcome, predicted_score, home_win_pct, draw_pct, away_win_pct, confidence, key_factors, actual_home_score, actual_away_score, actual_outcome, postmortem, btts_call, btts_reason",
+      "id, league_id, event_id, home_name, away_name, predicted_outcome, predicted_score, home_win_pct, draw_pct, away_win_pct, confidence, key_factors, actual_home_score, actual_away_score, actual_outcome, postmortem, btts_call, btts_reason, market_odds_open, market_odds_closing, market_odds_last",
     )
     .eq("id", predictionId)
     .maybeSingle();
+  let { data: p, error } = await query;
+  if (!hasPredictionMarketOddsSchema(error)) {
+    ({ data: p, error } = await supabaseAdmin
+      .from("predictions")
+      .select(
+        "id, league_id, event_id, home_name, away_name, predicted_outcome, predicted_score, home_win_pct, draw_pct, away_win_pct, confidence, key_factors, actual_home_score, actual_away_score, actual_outcome, postmortem, btts_call, btts_reason",
+      )
+      .eq("id", predictionId)
+      .maybeSingle());
+  }
   if (!p || !p.actual_outcome) return null;
   const existing = (p.postmortem as any) ?? null;
   // Om vi redan har en fullständig postmortem (inte bara preliminär bttsCall) — returnera den.
@@ -656,6 +756,13 @@ export async function generatePostmortemForPrediction(predictionId: string) {
       : {};
   const summary = p.event_id ? await fetchEventSummary(p.league_id, p.event_id) : null;
   const stats = summary ? extractMatchStats(summary) : undefined;
+  const closingOdds =
+    coerceMarketOddsSnapshot((p as any).market_odds_closing) ??
+    coerceMarketOddsSnapshot((p as any).market_odds_last);
+  const marketLine = buildMarketLineMovement(
+    coerceMarketOddsSnapshot((p as any).market_odds_open),
+    closingOdds,
+  )?.summary;
   const hit1x2 = p.predicted_outcome === p.actual_outcome;
   const exactScore =
     !!p.predicted_score &&
@@ -676,6 +783,7 @@ export async function generatePostmortemForPrediction(predictionId: string) {
     exactScore,
     stats,
     keyFactors: (p.key_factors as string[] | null) ?? null,
+    marketLine,
   });
   if (!pm) return null;
   const merged = { ...bttsPreserve, ...pm };
@@ -684,17 +792,28 @@ export async function generatePostmortemForPrediction(predictionId: string) {
 }
 
 export async function resolvePendingPredictions(limit = 50) {
-  const { data, error } = await supabaseAdmin
+  let { data, error } = await supabaseAdmin
     .from("predictions")
-    .select("id, league_id, event_id, home_win_pct, draw_pct, away_win_pct")
+    .select("id, league_id, event_id, home_win_pct, draw_pct, away_win_pct, market_odds_last")
     .is("resolved_at", null)
     .not("event_id", "is", null)
     .order("created_at", { ascending: true })
     .limit(limit);
+  if (!hasPredictionMarketOddsSchema(error)) {
+    ({ data, error } = await supabaseAdmin
+      .from("predictions")
+      .select("id, league_id, event_id, home_win_pct, draw_pct, away_win_pct")
+      .is("resolved_at", null)
+      .not("event_id", "is", null)
+      .order("created_at", { ascending: true })
+      .limit(limit));
+  }
   if (error || !data) return { resolved: 0, checked: 0, postmortems: 0 };
   let resolved = 0;
   let postmortems = 0;
   for (const row of data) {
+    const closingOdds =
+      row.event_id ? await getMarketOdds(row.league_id, row.event_id).catch(() => null) : null;
     const score = await fetchEventScore(row.league_id, row.event_id!);
     if (!score) continue;
     const actual: "H" | "D" | "A" =
@@ -705,16 +824,31 @@ export async function resolvePendingPredictions(limit = 50) {
       Number(row.away_win_pct),
       actual,
     );
-    await supabaseAdmin
+    const { error: updateError } = await supabaseAdmin
       .from("predictions")
       .update({
         actual_home_score: score.homeScore,
         actual_away_score: score.awayScore,
         actual_outcome: actual,
         brier_score: b,
+        market_odds_closing:
+          closingOdds ?? coerceMarketOddsSnapshot((row as any).market_odds_last) ?? null,
+        market_odds_closed_at: new Date().toISOString(),
         resolved_at: new Date().toISOString(),
       })
       .eq("id", row.id);
+    if (updateError && !hasPredictionMarketOddsSchema(updateError)) {
+      await supabaseAdmin
+        .from("predictions")
+        .update({
+          actual_home_score: score.homeScore,
+          actual_away_score: score.awayScore,
+          actual_outcome: actual,
+          brier_score: b,
+          resolved_at: new Date().toISOString(),
+        })
+        .eq("id", row.id);
+    }
     resolved++;
     // Generera postmortem i bakgrunden (men awaitad för att garantera spar)
     const pm = await generatePostmortemForPrediction(row.id);

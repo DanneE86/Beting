@@ -102,7 +102,22 @@ describe("match-analysis", () => {
       homeFavoriteRecord: null,
       awayAwayVsTop: null,
       h2hAggregate: null,
-      eventMeta: null,
+      eventMeta: {
+        weather: "klart",
+        referee: "Test Ref",
+        venue: "Arena",
+        matchNote: "derby",
+        refereeProfile: {
+          name: "Test Ref",
+          sampleSize: 8,
+          avgYellowCards: 5.6,
+          avgRedCards: 0.2,
+          avgFouls: 24.1,
+          penaltiesPerMatch: 0.4,
+          style: "kortbenagen" as const,
+          note: "Test Ref: kortbenagen, snitt 5.6 gula / 0.2 roda / 24.1 fouls over 8 matcher.",
+        },
+      },
     };
     const sections = buildTemplateMatchAnalysis({
       homeName: "Hemma",
@@ -117,5 +132,6 @@ describe("match-analysis", () => {
     expect(sections.h2h).toBeTruthy();
     expect(sections.lagnyheter).toBeTruthy();
     expect(sections.ovrigt).toBeTruthy();
+    expect(sections.ovrigt).toMatch(/Domarprofil/i);
   });
 });

@@ -8,6 +8,7 @@ import {
   savePrediction,
   getCalibration,
   buildCalibrationHint,
+  getOpenPredictionMarketState,
   type LeagueCalibration,
 } from "./learning.server";
 import {
@@ -32,6 +33,7 @@ import {
   teamRosterUrl,
   teamScheduleUrl,
 } from "./espn.api";
+import { buildMarketLineMovement, getMarketOdds, type MarketOddsSnapshot } from "./market-odds";
 import {
   buildH2H,
   computeGoalStats,
@@ -66,9 +68,11 @@ import {
   ensureMatchAnalysisBtts,
   fetchEventMeta,
   type MatchAnalysisSections,
+  type PreMatchChecklistData,
 } from "./match-analysis";
 import { getModelPromptText } from "./model-prompts.server";
 import { getLeaguePromptText } from "./prompts.functions";
+import { getRefereeProfile } from "./referee-profile";
 
 async function teamRoster(leagueSlug: string, teamId: string) {
   try {
@@ -188,41 +192,6 @@ async function teamScheduleAll(leagueSlug: string, teamId: string): Promise<Sche
     });
   } catch {
     return [];
-  }
-}
-
-async function getMarketOdds(leagueSlug: string, eventId: string) {
-  try {
-    const summary: any = await espnGet(summaryUrl(leagueSlug, eventId));
-    const pc: any[] = summary?.pickcenter ?? [];
-    if (!pc.length) return null;
-    // Average across providers
-    const homeOdds = pc.map((p) => Number(p?.homeTeamOdds?.moneyLine)).filter((n) => Number.isFinite(n) && n !== 0);
-    const drawOdds = pc.map((p) => Number(p?.drawOdds?.moneyLine)).filter((n) => Number.isFinite(n) && n !== 0);
-    const awayOdds = pc.map((p) => Number(p?.awayTeamOdds?.moneyLine)).filter((n) => Number.isFinite(n) && n !== 0);
-    const toDec = (ml: number) => (ml > 0 ? ml / 100 + 1 : 100 / Math.abs(ml) + 1);
-    const avg = (arr: number[]) =>
-      arr.length ? Math.round((arr.reduce((s, x) => s + toDec(x), 0) / arr.length) * 100) / 100 : null;
-    const dHome = avg(homeOdds);
-    const dDraw = avg(drawOdds);
-    const dAway = avg(awayOdds);
-    if (!dHome || !dDraw || !dAway) return null;
-    // Implied prob (with overround removed)
-    const iH = 1 / dHome;
-    const iD = 1 / dDraw;
-    const iA = 1 / dAway;
-    const sum = iH + iD + iA;
-    return {
-      providers: pc.length,
-      decimalOdds: { home: dHome, draw: dDraw, away: dAway },
-      marketProbPct: {
-        home: Math.round((iH / sum) * 1000) / 10,
-        draw: Math.round((iD / sum) * 1000) / 10,
-        away: Math.round((iA / sum) * 1000) / 10,
-      },
-    };
-  } catch {
-    return null;
   }
 }
 
@@ -426,7 +395,8 @@ function buildStatisticalPrediction(input: {
   awayOnRoadForm: { result: string }[];
   homeGoalStats: ReturnType<typeof computeGoalStats>;
   awayGoalStats: ReturnType<typeof computeGoalStats>;
-  marketOdds: Awaited<ReturnType<typeof getMarketOdds>>;
+  marketOdds: MarketOddsSnapshot | null;
+  marketLineMovement?: ReturnType<typeof buildMarketLineMovement>;
   lineups: Awaited<ReturnType<typeof getLineups>>;
   missingHome: string[];
   missingAway: string[];
@@ -441,7 +411,7 @@ function buildStatisticalPrediction(input: {
   seasonContext?: ReturnType<typeof buildSeasonContext>;
   optaMatch?: OptaMatch | null;
   preMatchChecklist?: ReturnType<typeof buildPreMatchChecklistData>;
-  eventMeta?: Awaited<ReturnType<typeof fetchEventMeta>>;
+  eventMeta?: PreMatchChecklistData["eventMeta"];
   homeName?: string;
   awayName?: string;
   homeStanding?: StandingRow;
@@ -461,6 +431,7 @@ function buildStatisticalPrediction(input: {
     homeGoalStats,
     awayGoalStats,
     marketOdds,
+    marketLineMovement,
     lineups,
     missingHome,
     missingAway,
@@ -606,6 +577,12 @@ function buildStatisticalPrediction(input: {
       `Marknaden (ESPN): 1 ${marketOdds.marketProbPct.home}% · X ${marketOdds.marketProbPct.draw}% · 2 ${marketOdds.marketProbPct.away}%.`,
     );
   }
+  if (marketLineMovement) {
+    keyFactors.push(marketLineMovement.summary);
+  }
+  if (eventMeta?.refereeProfile?.note) {
+    keyFactors.push(`Domarprofil: ${eventMeta.refereeProfile.note}`);
+  }
   if (optaMatch) {
     keyFactors.push(`${formatOptaMatchSummary(optaMatch)} (synkad data).`);
   }
@@ -705,6 +682,7 @@ function buildStatisticalPrediction(input: {
         marketOdds: marketOdds
           ? { marketProbPct: marketOdds.marketProbPct, decimalOdds: marketOdds.decimalOdds }
           : null,
+        marketLineMovement: marketLineMovement?.summary ?? null,
         modelPct: { home: homeWinPct, draw: drawPct, away: awayWinPct },
         homeAbsenceScore: homeAbsenceScore,
         awayAbsenceScore: awayAbsenceScore,
@@ -742,6 +720,7 @@ function buildStatisticalPrediction(input: {
           books: marketOdds.providers,
         }
       : null,
+    marketLineMovement,
     matchAnalysis,
     eventMeta,
   };
@@ -781,14 +760,44 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
     const awayGoalStats = computeGoalStats(awaySchedule);
     const homeRestDays = daysSinceLast(homeSchedule);
     const awayRestDays = daysSinceLast(awaySchedule);
-    const [marketOdds, eventMeta] = await Promise.all([
+    const [marketOdds, baseEventMeta, storedMarketState] = await Promise.all([
       lineups.eventId
         ? getMarketOdds(data.leagueId, lineups.eventId)
         : Promise.resolve(null),
       lineups.eventId
         ? fetchEventMeta(data.leagueId, lineups.eventId)
         : Promise.resolve(null),
+      getOpenPredictionMarketState({
+        leagueId: data.leagueId,
+        homeId: data.homeId,
+        awayId: data.awayId,
+        eventId: lineups.eventId ?? null,
+      }),
     ]);
+    const marketLineMovement = buildMarketLineMovement(
+      storedMarketState?.marketOddsOpen ?? null,
+      marketOdds ?? storedMarketState?.marketOddsLast ?? null,
+    );
+    const refereeProfile =
+      lineups.eventId && baseEventMeta?.referee
+        ? await getRefereeProfile({
+            leagueId: data.leagueId,
+            refereeName: baseEventMeta.referee,
+            eventId: lineups.eventId,
+            eventDate: lineups.eventDate ?? null,
+          }).catch(() => null)
+        : null;
+    const eventMeta = baseEventMeta
+      ? { ...baseEventMeta, refereeProfile }
+      : refereeProfile
+        ? {
+            weather: null,
+            referee: refereeProfile.name,
+            venue: null,
+            matchNote: null,
+            refereeProfile,
+          }
+        : null;
 
     // Allsvenskan: hämta dagens trupp från klubbens hemsida om möjligt.
     const matchDate = lineups.eventDate ? new Date(lineups.eventDate) : new Date();
@@ -925,11 +934,14 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
       preMatchChecklist,
       eventMeta,
       marketOdds,
+      marketLineMovement,
       lineupStatus: lineups.released
         ? `Officiella startelvor släppta (${lineups.source})`
         : "Startelvor ej släppta ännu — kontrollera närmare avspark",
       dataSources:
-        "ESPN" + (marketOdds ? " + bookmaker-odds (ESPN pickcenter)" : ""),
+        "ESPN" +
+        (marketOdds ? " + bookmaker-odds (ESPN pickcenter)" : "") +
+        (refereeProfile ? " + historisk domarprofil" : ""),
     };
 
     const calibration = await getCalibration(data.leagueId).catch(() => null);
@@ -961,6 +973,7 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
       homeGoalStats,
       awayGoalStats,
       marketOdds,
+      marketLineMovement,
       lineups,
       missingHome,
       missingAway,
@@ -1002,6 +1015,7 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
         bttsCall: stat.bttsCall,
         bttsReason: stat.bttsReason,
         matchAnalysis: stat.matchAnalysis ?? null,
+        marketOdds,
       }).catch((e) => console.error("savePrediction error", e));
       return stat;
     }
@@ -1042,7 +1056,9 @@ EXPERT-DATA (väg in i analysen):
 - 'goalTrendsLast10' = snitt mål för/emot, BTTS%, Over 2.5%, clean sheets, failed-to-score (sista 10). Använd för att kalibrera 'predictedScore' och välja över/under-tips.
 - 'restDays' = dagar sedan senaste match. <4 dagar = matchtrötthet, risk för svagare prestation.
 - 'eventMeta' = väder, domare, arena om ESPN har data.
+- 'eventMeta.refereeProfile' (om satt) = historisk domarprofil i samma liga: snitt gula/röda/fouls och stilklassning. Kortbenägen domare höjer varians, kortspel och risken för matchbilds-skifte.
 - 'marketOdds' = bookmakers konsensus med 'marketProbPct' (%-sannolikhet utan overround). JÄMFÖR alltid din egen homeWinPct/drawPct/awayWinPct mot marknaden. Om din sannolikhet skiljer >5%-enheter från marknaden = potentiellt VÄRDESPEL — nämn det explicit i 'bettingTip' och 'valueBet'.
+- 'marketLineMovement' (om satt) = hur 1/X/2 rört sig sedan första snapshoten. Större rörelse (>=2 procentenheter) är en stark signal som måste förklaras eller respekteras.
 
 OBLIGATORISK BETTING-CHECKLISTA — fyll fälten 'matchAnalysis' med 2–4 meningar svenska per avsnitt (utifrån datan, inga påhittade spelare):
 1. grundlaggande — form senaste 5–6, hemma-/bortastatistik (poäng, GD, vinster), snitt mål anfall/försvar, målrik vs låst matchprofil.
@@ -1334,6 +1350,7 @@ Matchdata:\n${JSON.stringify(context, null, 2)}\n\nGe en betting-analys med ifyl
       bttsCall: parsed.bttsCall,
       bttsReason: parsed.bttsReason,
       matchAnalysis: parsed.matchAnalysis ?? null,
+      marketOdds,
     }).catch((e) => console.error("savePrediction error", e));
 
 
@@ -1350,6 +1367,7 @@ Matchdata:\n${JSON.stringify(context, null, 2)}\n\nGe en betting-analys med ifyl
             books: marketOdds.providers,
           }
         : null,
+      marketLineMovement,
     };
 }
 

@@ -791,6 +791,7 @@ function PredictionPanel({
       marketProbPct: { home: number; draw: number; away: number };
       books: number;
     } | null;
+    marketLineMovement?: { summary: string; significant: boolean } | null;
   };
 }) {
   const isValue = p.valueBet && /värde/i.test(p.valueBet) && !/inget/i.test(p.valueBet);
@@ -831,6 +832,17 @@ function PredictionPanel({
               <div className="text-[10px] text-muted-foreground">2 · {Math.round(p.marketOdds.marketProbPct.away)}%</div>
             </div>
           </div>
+          {p.marketLineMovement?.summary && (
+            <div
+              className={`rounded border px-2 py-1 text-[11px] ${
+                p.marketLineMovement.significant
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                  : "border-border/60 bg-background/40 text-muted-foreground"
+              }`}
+            >
+              {p.marketLineMovement.summary}
+            </div>
+          )}
         </div>
       )}
       {p.matchAnalysis ? (

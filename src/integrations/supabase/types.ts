@@ -235,6 +235,12 @@ export type Database = {
           key_factors: Json | null
           league_id: string
           lineup_released: boolean | null
+          market_odds_closed_at: string | null
+          market_odds_closing: Json | null
+          market_odds_last: Json | null
+          market_odds_last_seen_at: string | null
+          market_odds_open: Json | null
+          market_odds_opened_at: string | null
           postmortem: Json | null
           predicted_outcome: string
           predicted_score: string
@@ -266,6 +272,12 @@ export type Database = {
           key_factors?: Json | null
           league_id: string
           lineup_released?: boolean | null
+          market_odds_closed_at?: string | null
+          market_odds_closing?: Json | null
+          market_odds_last?: Json | null
+          market_odds_last_seen_at?: string | null
+          market_odds_open?: Json | null
+          market_odds_opened_at?: string | null
           postmortem?: Json | null
           predicted_outcome: string
           predicted_score: string
@@ -297,6 +309,12 @@ export type Database = {
           key_factors?: Json | null
           league_id?: string
           lineup_released?: boolean | null
+          market_odds_closed_at?: string | null
+          market_odds_closing?: Json | null
+          market_odds_last?: Json | null
+          market_odds_last_seen_at?: string | null
+          market_odds_open?: Json | null
+          market_odds_opened_at?: string | null
           postmortem?: Json | null
           predicted_outcome?: string
           predicted_score?: string

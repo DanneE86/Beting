@@ -33,6 +33,8 @@ function topByFrequency(items: string[], limit = 6) {
 function fallbackPromptFromSample(
   sample: ArchivedSampleRow[],
   resolvedLessons: string[],
+  topSignalsMissed: string[],
+  topModelMistakes: string[],
 ) {
   let homeWins = 0;
   let draws = 0;
@@ -60,6 +62,12 @@ function fallbackPromptFromSample(
     `Överdriv inte hemmalaget utan tydlig edge; hemmasegrar låg på ${pct(homeWins, sample.length)}% medan bortasegrar låg på ${pct(awayWins, sample.length)}%.`,
     `Kalibrera målbilden konservativt när ligadata pekar lågt; ${pct(lowScoring, matches)}% av matcherna stannade på högst två mål och BTTS låg på ${pct(bttsYes, sample.length)}%.`,
     `Låt ligaspecifik prompt styra före global prompt när de krockar.`,
+    ...(topSignalsMissed[0]
+      ? [`Väg återkommande missade signaler tungt: ${topSignalsMissed.slice(0, 2).join("; ")}.`]
+      : []),
+    ...(topModelMistakes[0]
+      ? [`Undvik återkommande modellfel: ${topModelMistakes.slice(0, 2).join("; ")}.`]
+      : []),
     ...resolvedLessons.slice(0, 3),
   ];
   return topByFrequency(lines, 5).map((line) => `- ${line}`).join("\n");
@@ -82,7 +90,9 @@ export async function updateGlobalFootballPromptFromLatestMatches(sampleSize = 5
 
   const { data: resolvedPredictions } = await supabaseAdmin
     .from("predictions")
-    .select("league_id, home_name, away_name, predicted_outcome, actual_outcome, home_win_pct, draw_pct, away_win_pct, postmortem, resolved_at")
+    .select(
+      "league_id, home_name, away_name, predicted_outcome, actual_outcome, home_win_pct, draw_pct, away_win_pct, key_factors, postmortem, resolved_at",
+    )
     .not("actual_outcome", "is", null)
     .order("resolved_at", { ascending: false })
     .limit(120);
@@ -91,6 +101,22 @@ export async function updateGlobalFootballPromptFromLatestMatches(sampleSize = 5
     (resolvedPredictions ?? []).flatMap((row) =>
       Array.isArray((row.postmortem as { lessons?: string[] } | null)?.lessons)
         ? ((row.postmortem as { lessons?: string[] }).lessons ?? [])
+        : [],
+    ),
+    8,
+  );
+  const topSignalsMissed = topByFrequency(
+    (resolvedPredictions ?? []).flatMap((row) =>
+      Array.isArray((row.postmortem as { signals_missed?: string[] } | null)?.signals_missed)
+        ? ((row.postmortem as { signals_missed?: string[] }).signals_missed ?? [])
+        : [],
+    ),
+    8,
+  );
+  const topModelMistakes = topByFrequency(
+    (resolvedPredictions ?? []).flatMap((row) =>
+      Array.isArray((row.postmortem as { model_mistakes?: string[] } | null)?.model_mistakes)
+        ? ((row.postmortem as { model_mistakes?: string[] }).model_mistakes ?? [])
         : [],
     ),
     8,
@@ -123,13 +149,19 @@ export async function updateGlobalFootballPromptFromLatestMatches(sampleSize = 5
       avgGoals: Math.round((stats.goals / Math.max(1, stats.matches)) * 100) / 100,
     }));
 
-  let promptText = fallbackPromptFromSample(sample, resolvedLessons);
+  let promptText = fallbackPromptFromSample(
+    sample,
+    resolvedLessons,
+    topSignalsMissed,
+    topModelMistakes,
+  );
 
   if (apiKey) {
     const system = `Du tränar en global fotbollsmodell. Du får de senaste 500 fotbollsmatcherna från arkivet plus verkliga lärdomar från resolverade prediction-postmortems.
 Skriv en kort svensk GLOBAL träningsprompt (max 1500 tecken) som:
 - bara innehåller konkreta regler i imperativ
 - fokuserar på kalibrering, draw-realism, mål/BTTS, hemma/borta-bias och när modellen ska vara försiktig
+- väver in återkommande missade signaler från resolverade postmortems (skador, lineups, domare, marknad om de återkommer i datan)
 - fungerar globalt över ligor
 - uttryckligen säger att ligaspecifika prompts väger tyngre när de finns.
 Ingen inledning. Bara regler.`;
@@ -140,6 +172,8 @@ Ingen inledning. Bara regler.`;
         latestMatches: sample.slice(0, 80),
         leagueSummary,
         resolvedPredictionLessons: resolvedLessons,
+        topSignalsMissed,
+        topModelMistakes,
       },
       null,
       2,
@@ -182,6 +216,8 @@ Ingen inledning. Bara regler.`;
     promptText,
     leagueSummary,
     resolvedPredictionLessons: resolvedLessons,
+    topSignalsMissed,
+    topModelMistakes,
   };
 }
 
