@@ -19,7 +19,7 @@ export function rowPriceKr(type: PoolGameType): number {
 }
 
 export function defaultBudgetKr(type: PoolGameType): number {
-  return type === "dd" ? 50 : 500;
+  return type === "dd" ? 50 : 600;
 }
 
 export function defaultMinPayoutKr(type: PoolGameType): number {

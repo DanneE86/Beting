@@ -208,4 +208,50 @@ describe("buildSystem", () => {
     expect(system.selections.find((selection) => selection.leg === 1)?.picks).toHaveLength(3);
     expect(system.selections.find((selection) => selection.leg === 2)?.picks).toHaveLength(5);
   });
+
+  it("håller ett hårt budgettak även när grundsystemet blir för stort", () => {
+    const legs: LegAnalysis[] = [
+      leg(1, "spik", [horse(1, 56, 0.82), horse(2, 18, 0.61)], 1),
+      leg(2, "gardering", [horse(1, 31, 0.7), horse(2, 26, 0.69), horse(3, 18, 0.67), horse(4, 12, 0.65)], 1),
+      leg(3, "gardering", [horse(1, 29, 0.68), horse(2, 24, 0.67), horse(3, 16, 0.64), horse(4, 11, 0.62)], 1),
+      leg(4, "gardering", [horse(1, 28, 0.67), horse(2, 22, 0.66), horse(3, 17, 0.63), horse(4, 12, 0.61)], 1),
+      leg(5, "gardering", [horse(1, 27, 0.66), horse(2, 21, 0.65), horse(3, 16, 0.62), horse(4, 13, 0.6)], 1),
+      leg(6, "gardering", [horse(1, 26, 0.65), horse(2, 20, 0.64), horse(3, 15, 0.61), horse(4, 12, 0.59)], 1),
+      leg(7, "gardering", [horse(1, 25, 0.64), horse(2, 19, 0.63), horse(3, 14, 0.6), horse(4, 11, 0.58)], 1),
+      leg(8, "gardering", [horse(1, 24, 0.63), horse(2, 18, 0.62), horse(3, 13, 0.59), horse(4, 10, 0.57)], 1),
+    ];
+
+    const system = buildSystem("V85_budget_cap", "V85", legs, {
+      budgetKr: 500,
+      targetMinPayoutKr: 30000,
+    });
+
+    expect(system.costKr).toBeLessThanOrEqual(500);
+  });
+
+  it("kan lämna fler hästar kvar i öppet lopp och trimma svagare lopp inom budget", () => {
+    const legs: LegAnalysis[] = [
+      leg(
+        1,
+        "gardering",
+        [horse(1, 45, 0.72), horse(2, 28, 0.64), horse(3, 8, 0.3), horse(4, 6, 0.2)],
+        1,
+      ),
+      leg(
+        2,
+        "bred",
+        [horse(1, 25, 0.68), horse(2, 20, 0.66), horse(3, 16, 0.64), horse(4, 12, 0.62), horse(5, 8, 0.6)],
+        1,
+      ),
+    ];
+
+    const system = buildSystem("dd_rebalance", "dd", legs, {
+      budgetKr: 9,
+      targetMinPayoutKr: 5000,
+    });
+
+    expect(system.costKr).toBeLessThanOrEqual(9);
+    expect(system.selections.find((selection) => selection.leg === 1)?.picks).toHaveLength(2);
+    expect(system.selections.find((selection) => selection.leg === 2)?.picks).toHaveLength(4);
+  });
 });

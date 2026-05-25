@@ -41,7 +41,7 @@ function daysAgoIso(days: number) {
   return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
 }
 
-const DEFAULT_TRAV_BUDGET_KR = 500;
+const DEFAULT_TRAV_BUDGET_KR = 600;
 const DEFAULT_DD_BUDGET_KR = 50;
 const DEFAULT_TRAV_MIN_PAYOUT_KR = 30_000;
 const DEFAULT_DD_MIN_PAYOUT_KR = 5_000;

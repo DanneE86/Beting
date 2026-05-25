@@ -23,6 +23,21 @@ function secondModelHorse(leg: LegAnalysis) {
   return [...leg.horses].sort((a, b) => (b.combinedScore ?? 0) - (a.combinedScore ?? 0))[1] ?? null;
 }
 
+function modelRankOfHorse(leg: LegAnalysis, horseNumber: number): number {
+  const index = [...leg.horses]
+    .sort((a, b) => (b.combinedScore ?? 0) - (a.combinedScore ?? 0))
+    .findIndex((horse) => horse.number === horseNumber);
+  return index >= 0 ? index + 1 : 999;
+}
+
+function valueEdgeSignal(horse: LegAnalysis["horses"][number]): number {
+  if (horse.valueEdgePct != null) return horse.valueEdgePct;
+  if (horse.valueScore != null && horse.valueScore > 0) {
+    return (horse.valueScore - 1) * 10;
+  }
+  return 0;
+}
+
 function scoreModelSpikeLeg(leg: LegAnalysis): number {
   const top = topModelHorse(leg);
   const second = secondModelHorse(leg);
@@ -35,16 +50,23 @@ function scoreModelSpikeLeg(leg: LegAnalysis): number {
 
 function scoreValueSpikeHorse(leg: LegAnalysis, horse: LegAnalysis["horses"][number]): number {
   const bd = horse.betDistribution ?? 0;
-  const moderateBdBonus = bd >= 4 && bd <= 20 ? 12 : bd <= 30 ? 6 : 0;
-  const nonFavBonus = horse.number !== leg.favorite.number ? 10 : 0;
-  const openRacePenalty = leg.recommendation === "bred" ? 12 : 0;
+  const edge = valueEdgeSignal(horse);
+  const rank = modelRankOfHorse(leg, horse.number);
+  const modelTop = topModelHorse(leg);
+  const gapToTop = Math.max(0, (modelTop?.combinedScore ?? 0) - (horse.combinedScore ?? 0));
+  const rankBonus = rank === 1 ? 8 : rank === 2 ? 3 : -10;
+  const bdPenalty = Math.abs(bd - 14) * 0.6;
+  const longshotPenalty = bd > 0 && bd < 6 ? 20 : 0;
+  const favoritePenalty = horse.number === leg.favorite.number ? 100 : 0;
   return (
-    (horse.valueEdgePct ?? 0) * 2.4 +
-    (horse.valueScore ?? 0) * 14 +
-    (horse.combinedScore ?? 0) * 70 +
-    moderateBdBonus +
-    nonFavBonus -
-    openRacePenalty
+    (horse.combinedScore ?? 0) * 100 +
+    edge * 2.5 +
+    (horse.estimatedWinPct ?? 0) -
+    gapToTop * 100 +
+    rankBonus -
+    bdPenalty -
+    longshotPenalty -
+    favoritePenalty
   );
 }
 
@@ -54,16 +76,22 @@ function pickValueSpikeHorse(leg: LegAnalysis) {
   if (!hasMarketData) {
     const modelTop = topModelHorse(leg);
     const second = secondModelHorse(leg);
-    if ((modelTop?.combinedScore ?? 0) >= 0.58) return modelTop;
-    return second ?? modelTop;
+    if (modelTop && modelTop.number !== leg.favorite.number && (modelTop.combinedScore ?? 0) >= 0.62) {
+      return modelTop;
+    }
+    if (second && (second.combinedScore ?? 0) >= 0.6) return second;
+    return null;
   }
 
   const candidates = leg.horses.filter(
     (horse) =>
-      horse.betDistribution >= 2 &&
-      horse.betDistribution <= 30 &&
-      horse.combinedScore >= 0.46 &&
-      horse.number !== leg.favorite.number,
+      horse.number !== leg.favorite.number &&
+      horse.betDistribution >= 6 &&
+      horse.betDistribution <= 32 &&
+      horse.combinedScore >= 0.52 &&
+      valueEdgeSignal(horse) >= 1 &&
+      modelRankOfHorse(leg, horse.number) <= 2 &&
+      Math.max(0, (topModelHorse(leg)?.combinedScore ?? 0) - (horse.combinedScore ?? 0)) <= 0.12,
   );
   if (candidates.length) {
     return [...candidates].sort((a, b) => scoreValueSpikeHorse(leg, b) - scoreValueSpikeHorse(leg, a))[0];
@@ -71,15 +99,18 @@ function pickValueSpikeHorse(leg: LegAnalysis) {
 
   const softerCandidates = leg.horses.filter(
     (horse) =>
-      horse.betDistribution >= 4 &&
-      horse.betDistribution <= 35 &&
-      horse.combinedScore >= 0.5,
+      horse.number !== leg.favorite.number &&
+      horse.betDistribution >= 6 &&
+      horse.betDistribution <= 20 &&
+      horse.combinedScore >= 0.56 &&
+      valueEdgeSignal(horse) >= 1 &&
+      modelRankOfHorse(leg, horse.number) <= 2,
   );
   if (softerCandidates.length) {
     return [...softerCandidates].sort((a, b) => scoreValueSpikeHorse(leg, b) - scoreValueSpikeHorse(leg, a))[0];
   }
 
-  return leg.skrellSpike ?? null;
+  return null;
 }
 
 function chooseForcedV85Spikes(
@@ -117,9 +148,6 @@ function chooseForcedV85Spikes(
   }
 
   const remainingModel = modelCandidates.filter((leg) => !spikeByLeg.has(leg.leg));
-  const remainingValue = valueCandidates.filter((entry) => !spikeByLeg.has(entry.leg.leg));
-
-  const secondValueChoice = remainingValue[0] ?? null;
   const secondModelChoice = remainingModel[0] ?? null;
 
   if (!firstValueChoice && !secondModelChoice && legs[0]) {
@@ -127,33 +155,7 @@ function chooseForcedV85Spikes(
     return { spikeByLeg };
   }
 
-  if (secondValueChoice && secondModelChoice) {
-    const valueScore = scoreValueSpikeHorse(secondValueChoice.leg, secondValueChoice.horse);
-    const modelScore = scoreModelSpikeLeg(secondModelChoice);
-    const strongLowPctValue =
-      secondValueChoice.horse.betDistribution > 0 &&
-      secondValueChoice.horse.betDistribution <= 15 &&
-      secondValueChoice.horse.combinedScore >= 0.64;
-    if (valueScore >= modelScore + 4 || (strongLowPctValue && valueScore >= modelScore - 8)) {
-      spikeByLeg.set(secondValueChoice.leg.leg, {
-        type: "skrell-spik",
-        number: secondValueChoice.horse.number,
-      });
-    } else {
-      spikeByLeg.set(secondModelChoice.leg, {
-        type: "spik",
-        number: topModelHorse(secondModelChoice).number,
-      });
-    }
-    return { spikeByLeg };
-  }
-
-  if (secondValueChoice) {
-    spikeByLeg.set(secondValueChoice.leg.leg, {
-      type: "skrell-spik",
-      number: secondValueChoice.horse.number,
-    });
-  } else if (secondModelChoice) {
+  if (secondModelChoice) {
     spikeByLeg.set(secondModelChoice.leg, {
       type: "spik",
       number: topModelHorse(secondModelChoice).number,
@@ -211,6 +213,43 @@ function coverageOrder(leg: LegAnalysis): number[] {
   return ordered;
 }
 
+function horseCoverageScore(leg: LegAnalysis, horse: LegAnalysis["horses"][number]): number {
+  const rank = modelRankOfHorse(leg, horse.number);
+  const modelTop = topModelHorse(leg);
+  const gapToTop = Math.max(0, (modelTop?.combinedScore ?? 0) - (horse.combinedScore ?? 0));
+  let score =
+    (horse.combinedScore ?? 0) * 100 +
+    (horse.estimatedWinPct ?? (horse.combinedScore ?? 0) * 100) * 0.7 +
+    valueEdgeSignal(horse) * 2.2 -
+    gapToTop * 100;
+  if (rank === 1) score += 8;
+  else if (rank === 2) score += 4;
+  else if (rank >= 5) score -= 4;
+  if (horse.betDistribution >= 4 && horse.betDistribution <= 20) score += 4;
+  if (leg.skrellSpike?.number === horse.number) score += 5;
+  if (leg.recommendation === "bred") score += 8;
+  if (horse.formTrend === "nedåtgående") score -= 12;
+  return score;
+}
+
+function nextCoverageHorse(
+  leg: LegAnalysis,
+  selectedNumbers: number[],
+): LegAnalysis["horses"][number] | null {
+  const nextNumber = coverageOrder(leg).find((number) => !selectedNumbers.includes(number));
+  return leg.horses.find((horse) => horse.number === nextNumber) ?? null;
+}
+
+function removableCoverageHorse(
+  leg: LegAnalysis,
+  selectedNumbers: number[],
+): LegAnalysis["horses"][number] | null {
+  const ordered = coverageOrder(leg);
+  const removableNumber = [...selectedNumbers]
+    .sort((a, b) => ordered.indexOf(b) - ordered.indexOf(a))[0];
+  return leg.horses.find((horse) => horse.number === removableNumber) ?? null;
+}
+
 function garderingPriority(leg: LegAnalysis): number {
   const favoriteBd = leg.favorite.betDistribution ?? 0;
   const top = topModelHorse(leg);
@@ -222,6 +261,15 @@ function garderingPriority(leg: LegAnalysis): number {
   score += Math.min(leg.horses.length, 12);
   score += Math.max(0, 0.12 - modelGap) * 120;
   return score;
+}
+
+function projectedRowsForShift(
+  currentRows: number,
+  addCount: number,
+  trimCount: number,
+): number {
+  if (addCount <= 0 || trimCount <= 1) return currentRows;
+  return (currentRows / addCount / trimCount) * (addCount + 1) * (trimCount - 1);
 }
 
 function picksForLeg(
@@ -243,6 +291,78 @@ function picksForLeg(
 
 function product(nums: number[]): number {
   return nums.reduce((a, b) => a * b, 1);
+}
+
+function projectedRowsForChange(currentRows: number, currentCount: number, nextCount: number): number {
+  if (currentCount <= 0) return currentRows;
+  return Math.max(1, Math.round((currentRows / currentCount) * nextCount));
+}
+
+function rebalanceCoverage(
+  legs: LegAnalysis[],
+  selections: SystemSelection[],
+  counts: number[],
+  rows: number,
+  maxRows: number,
+): boolean {
+  let bestShift:
+    | {
+        addIndex: number;
+        trimIndex: number;
+        nextRows: number;
+      }
+    | null = null;
+  let bestScore = 8;
+
+  for (let addIndex = 0; addIndex < legs.length; addIndex++) {
+    if (selections[addIndex].type !== "gardering") continue;
+    if (counts[addIndex] >= maxGuardCount(legs[addIndex])) continue;
+    const addLeg = legs[addIndex];
+    const addHorse = nextCoverageHorse(addLeg, selections[addIndex].picks);
+    if (!addHorse) continue;
+    const addScore = horseCoverageScore(addLeg, addHorse) + garderingPriority(addLeg) * 0.55;
+
+    for (let trimIndex = 0; trimIndex < legs.length; trimIndex++) {
+      if (trimIndex === addIndex) continue;
+      if (selections[trimIndex].type !== "gardering") continue;
+      if (counts[trimIndex] <= 1) continue;
+      const trimLeg = legs[trimIndex];
+      const trimHorse = removableCoverageHorse(trimLeg, selections[trimIndex].picks);
+      if (!trimHorse) continue;
+
+      const nextRows = projectedRowsForShift(rows, counts[addIndex], counts[trimIndex]);
+      if (nextRows > maxRows) continue;
+
+      const trimCost = horseCoverageScore(trimLeg, trimHorse) + garderingPriority(trimLeg) * 0.45;
+      const shiftScore = addScore - trimCost;
+      if (shiftScore <= bestScore) continue;
+
+      bestScore = shiftScore;
+      bestShift = {
+        addIndex,
+        trimIndex,
+        nextRows,
+      };
+    }
+  }
+
+  if (!bestShift) return false;
+
+  const addLeg = legs[bestShift.addIndex];
+  const trimLeg = legs[bestShift.trimIndex];
+  const addHorse = nextCoverageHorse(addLeg, selections[bestShift.addIndex].picks);
+  const trimHorse = removableCoverageHorse(trimLeg, selections[bestShift.trimIndex].picks);
+  if (!addHorse || !trimHorse) return false;
+
+  selections[bestShift.addIndex].picks = coverageOrder(addLeg).slice(0, counts[bestShift.addIndex] + 1);
+  counts[bestShift.addIndex] += 1;
+
+  selections[bestShift.trimIndex].picks = selections[bestShift.trimIndex].picks.filter(
+    (number) => number !== trimHorse.number,
+  );
+  counts[bestShift.trimIndex] -= 1;
+
+  return true;
 }
 
 /** Bygger garderingar inom budget; prioriterar spikar på starka favoriter. */
@@ -280,7 +400,9 @@ export function buildSystem(
       const skrellHorse = leg.horses.find((horse) => horse.number === fixedNumber) ?? leg.skrellSpike ?? leg.favorite;
       note =
         skrellHorse.betDistribution > 0
-          ? `Skräll-spik: ${skrellHorse.name} (${skrellHorse.betDistribution.toFixed(1)}% av spelet)`
+          ? skrellHorse.betDistribution <= 10
+            ? `Skräll-spik: ${skrellHorse.name} (${skrellHorse.betDistribution.toFixed(1)}% av spelet)`
+            : `Värdespik: ${skrellHorse.name} (${skrellHorse.betDistribution.toFixed(1)}% av spelet)`
           : `Värdespik: ${skrellHorse.name} (spelprocent saknas ännu)`;
     } else if (forcedSpike?.type === "spik" || (!isMainPool && leg.recommendation === "spik")) {
       mode = "spik";
@@ -321,18 +443,20 @@ export function buildSystem(
       })
       .sort((a, b) => b.priority - a.priority || a.index - b.index);
     for (const { leg, index } of expandable) {
-      selections[index].picks = coverageOrder(leg).slice(0, selections[index].picks.length + 1);
-      counts[index] = selections[index].picks.length;
+      const nextCount = selections[index].picks.length + 1;
+      const nextRows = projectedRowsForChange(rows, counts[index], nextCount);
+      if (nextRows > maxRows) continue;
+      selections[index].picks = coverageOrder(leg).slice(0, nextCount);
+      counts[index] = nextCount;
       expanded = true;
       break;
     }
     if (!expanded) break;
     rows = product(counts);
     costKr = rows * unitKr;
-    if (costKr > options.budgetKr) break;
   }
 
-  // Trimma garderingar om över budget (behåll spikar)
+  // Trimma först mot normal gardering, sedan hårt ned till 1 häst om det krävs för budgettaket.
   while (costKr > options.budgetKr && rows > 1) {
     let trimmed = false;
     const trimmable = legs
@@ -346,6 +470,30 @@ export function buildSystem(
       const nextCount = selections[index].picks.length - 1;
       selections[index].picks = coverageOrder(leg).slice(0, nextCount);
       counts[index] = selections[index].picks.length;
+      trimmed = true;
+      break;
+    }
+    if (!trimmed) break;
+    rows = product(counts);
+    costKr = rows * unitKr;
+  }
+
+  for (let i = 0; i < 3; i++) {
+    if (!rebalanceCoverage(legs, selections, counts, rows, maxRows)) break;
+    rows = product(counts);
+    costKr = rows * unitKr;
+  }
+
+  while (costKr > options.budgetKr && rows > 1) {
+    let trimmed = false;
+    const emergencyTrimmable = legs
+      .map((leg, index) => ({ leg, index, priority: garderingPriority(leg) }))
+      .filter(({ index }) => selections[index].type === "gardering" && selections[index].picks.length > 1)
+      .sort((a, b) => a.priority - b.priority || a.index - b.index);
+    for (const { leg, index } of emergencyTrimmable) {
+      const nextCount = selections[index].picks.length - 1;
+      selections[index].picks = coverageOrder(leg).slice(0, nextCount);
+      counts[index] = nextCount;
       trimmed = true;
       break;
     }

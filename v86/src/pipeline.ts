@@ -6,7 +6,7 @@ import {
   resolveGame,
 } from "./atg-api";
 import { defaultBudgetKr, defaultMinPayoutKr, gameTypeLabel } from "./game-types";
-import { analyzeGame, pickBestSkrellLeg } from "./analyze";
+import { analyzeGame } from "./analyze";
 import { buildSystem } from "./system-builder";
 import { fetchTravsportForGame } from "./travsport/fetch-game";
 import {
@@ -234,11 +234,9 @@ export async function buildSnapshotFromGame(
   }
 
   const legs = analyzeGame(game, travsportIndex);
-  const bestSkrell = pickBestSkrellLeg(legs);
   const system = buildSystem(game.id, gameType, legs, {
     budgetKr,
     targetMinPayoutKr,
-    forceSkrellLeg: bestSkrell?.leg ?? null,
   });
 
   let andelsspel;
