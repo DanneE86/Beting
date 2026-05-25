@@ -308,6 +308,30 @@ export type Database = {
         }
         Relationships: []
       }
+      model_learning_prompts: {
+        Row: {
+          created_at: string
+          last_sample_count: number
+          prompt_text: string
+          scope: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          last_sample_count?: number
+          prompt_text?: string
+          scope: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          last_sample_count?: number
+          prompt_text?: string
+          scope?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       trav_learning_prompts: {
         Row: {
           created_at: string

@@ -67,6 +67,8 @@ import {
   fetchEventMeta,
   type MatchAnalysisSections,
 } from "./match-analysis";
+import { getModelPromptText } from "./model-prompts.server";
+import { getLeaguePromptText } from "./prompts.functions";
 
 async function teamRoster(leagueSlug: string, teamId: string) {
   try {
@@ -1101,10 +1103,15 @@ SÄSONGSSLUT — SEASONCONTEXT (endast när fältet finns med):
 Returnera ENDAST giltig JSON enligt schemat.`;
 
     const calibrationHint = calibration ? buildCalibrationHint(calibration) : null;
+    const globalPrompt = await getModelPromptText("football-global").catch(() => null);
     const customPrompt = await getLeaguePromptText(data.leagueId).catch(() => null);
     const statBaseline = buildStatisticalPrediction(poissonBaselineInput);
 
     const userPrompt = `${
+      globalPrompt
+        ? `### GLOBAL TRÄNINGSPROMPT — FOTBOLL (AI-genererad från senaste 500 matcherna) ###\n${globalPrompt}\n\n---\n\n`
+        : ""
+    }${
       customPrompt
         ? `### ABSOLUT HÖGSTA PRIORITET — LIGASPECIFIK TRÄNINGSPROMPT (AI-genererad från resolverade tips) ###\n${customPrompt}\n\n---\n\n`
         : ""
