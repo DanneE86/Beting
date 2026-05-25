@@ -55,6 +55,80 @@ function restScoreFromDays(days: number | null): number {
   return 0.6;
 }
 
+function normalizeStartMethod(method?: string): "auto" | "volte" | "okänd" {
+  const m = `${method ?? ""}`.toLowerCase();
+  if (m.includes("volt")) return "volte";
+  if (m.includes("auto") || m === "a") return "auto";
+  return "okänd";
+}
+
+function laneBucket(post: number, method: "auto" | "volte" | "okänd"): "inner" | "middle" | "outer" | "back" {
+  if (method === "volte") {
+    if (post <= 3) return "inner";
+    if (post <= 6) return "middle";
+    if (post <= 9) return "outer";
+    return "back";
+  }
+  if (post <= 3) return "inner";
+  if (post <= 6) return "middle";
+  if (post <= 8) return "outer";
+  return "back";
+}
+
+function scoreFromPlacings(placings: number[]): number {
+  if (!placings.length) return 0.5;
+  const wins = placings.filter((p) => p === 1).length;
+  const top3 = placings.filter((p) => p <= 3).length;
+  const avgPlacement = placings.reduce((sum, p) => sum + p, 0) / placings.length;
+  const placementScore = Math.max(0.15, Math.min(1, 1 - (avgPlacement - 1) / 8));
+  return Math.max(
+    0.2,
+    Math.min(0.95, 0.2 + (wins / placings.length) * 0.35 + (top3 / placings.length) * 0.2 + placementScore * 0.25),
+  );
+}
+
+function buildLaneHistory(
+  travsport: TravsportHorseProfile | null | undefined,
+  post: number,
+  raceMethod: "auto" | "volte" | "okänd",
+) {
+  if (!travsport?.starts?.length || raceMethod === "okänd") return null;
+  const completed = travsport.starts.filter(
+    (row) =>
+      row.placement != null &&
+      row.placement > 0 &&
+      row.startPosition != null &&
+      normalizeStartMethod(row.startMethod) === raceMethod,
+  );
+  if (!completed.length) return null;
+
+  const exact = completed.filter((row) => row.startPosition === post);
+  const bucket = laneBucket(post, raceMethod);
+  const bucketRows = completed.filter((row) => laneBucket(row.startPosition!, raceMethod) === bucket);
+  const basis = exact.length >= 2 ? exact : bucketRows.length >= 3 ? bucketRows : [];
+  if (!basis.length) return null;
+
+  const placings = basis.map((row) => row.placement!);
+  const wins = placings.filter((p) => p === 1).length;
+  const top3 = placings.filter((p) => p <= 3).length;
+  const score = scoreFromPlacings(placings);
+  const mode = exact.length >= 2 ? "samma spår" : "liknande spår";
+  const label =
+    bucket === "inner" ? "innerspår" : bucket === "middle" ? "mellanspår" : bucket === "outer" ? "yttre spår" : "bakspår";
+
+  return {
+    exactStarts: exact.length,
+    bucketStarts: bucketRows.length,
+    score,
+    strong: score >= 0.72,
+    weak: score <= 0.45,
+    note:
+      mode === "samma spår"
+        ? `${mode}: ${wins}/${basis.length} segrar, topp-3 ${top3}/${basis.length} (${raceMethod})`
+        : `${mode} (${label}): ${wins}/${basis.length} segrar, topp-3 ${top3}/${basis.length} (${raceMethod})`,
+  };
+}
+
 export function scoreHorseChecklist(
   start: AtgStart,
   race: AtgRace,
@@ -93,8 +167,9 @@ export function scoreHorseChecklist(
   const methodScore = raceMethod === horseMethod ? 0.85 : 0.4;
 
   const post = start.postPosition ?? start.number;
-  const isVolt = raceMethod === "volte";
-  const laneScore = isVolt
+  const normalizedRaceMethod = normalizeStartMethod(raceMethod);
+  const isVolt = normalizedRaceMethod === "volte";
+  const baseLaneScore = isVolt
     ? post <= 4
       ? 0.7
       : 0.55
@@ -103,6 +178,12 @@ export function scoreHorseChecklist(
       : post >= 8
         ? 0.45
         : 0.6;
+  const laneHistory = buildLaneHistory(travsport, post, normalizedRaceMethod);
+  let laneScore = (baseLaneScore + methodScore) / 2;
+  if (laneHistory) {
+    const historyWeight = laneHistory.exactStarts >= 2 ? 0.6 : 0.45;
+    laneScore = laneScore * (1 - historyWeight) + laneHistory.score * historyWeight;
+  }
 
   const trackName = race.track?.name ?? "";
   const homeTrack = h?.homeTrack?.name ?? "";
@@ -172,6 +253,8 @@ export function scoreHorseChecklist(
   if (travsport && travsport.trackStarts >= 3 && travsport.trackWins >= 1) {
     highlights.push(`Bana ${travsport.trackWins}/${travsport.trackStarts} segrar`);
   }
+  if (laneHistory?.strong) highlights.push(`Spårhistorik stark (${laneHistory.note})`);
+  if (laneHistory?.weak) highlights.push(`Spårhistorik svag (${laneHistory.note})`);
   if (formTrend === "stigande") highlights.push("Stigande formkurva");
   if (distMatch) highlights.push("Distans passar");
   if (trWin >= 15) highlights.push(`Tränare i form (${trWin.toFixed(0)}% vinst 2026)`);
@@ -218,10 +301,10 @@ export function scoreHorseChecklist(
       id: "lane_start",
       category: "häst",
       label: "Spår & starttyp",
-      score: (laneScore + methodScore) / 2,
+      score: laneScore,
       weight: 0.9,
       available: true,
-      note: `Spår ${post}, ${raceMethod}${isVolt ? " (volt)" : " (auto)"}`,
+      note: `Spår ${post}, ${raceMethod}${isVolt ? " (volt)" : " (auto)"}${laneHistory ? ` · ${laneHistory.note}` : ""}`,
     },
     {
       id: "track",

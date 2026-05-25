@@ -69,6 +69,9 @@ function buildTipNote(top: ScoredHorse): string {
     `Modell: ${(top.combinedScore * 100).toFixed(0)}% (häst ${(top.horseScore * 100).toFixed(0)}%, kusk ${(top.driverScore * 100).toFixed(0)}%)`,
     `Form: ${top.formTrend}`,
   ];
+  if ((top.valueEdgePct ?? 0) >= 5) {
+    parts.push(`Undervärderad: +${top.valueEdgePct!.toFixed(1)}%-enheter mot strecken`);
+  }
   if (top.highlights.length) parts.push(top.highlights.slice(0, 2).join(" · "));
   return parts.join(" · ");
 }
@@ -80,8 +83,38 @@ export function analyzeLeg(
   travsportIndex?: TravsportIndex,
 ): LegAnalysis {
   const field = activeStarts(race);
-  const horses = field
-    .map((s) => scoreStart(s, race, field, gameType, travsportIndex))
+  const rawHorses = field.map((s) => scoreStart(s, race, field, gameType, travsportIndex));
+  const totalCombined = rawHorses.reduce((sum, horse) => sum + Math.max(0.01, horse.combinedScore), 0);
+  const fallbackMarketPct = rawHorses.length > 0 ? 100 / rawHorses.length : 0;
+  const horses = rawHorses
+    .map((horse) => {
+      const estimatedWinPct =
+        totalCombined > 0 ? (Math.max(0.01, horse.combinedScore) / totalCombined) * 100 : fallbackMarketPct;
+      const marketPct = horse.betDistribution > 0 ? horse.betDistribution : fallbackMarketPct;
+      const valueEdgePct = estimatedWinPct - marketPct;
+      const isSkrellCandidate =
+        horse.betDistribution > 0 &&
+        horse.betDistribution >= 2 &&
+        horse.betDistribution <= 22 &&
+        valueEdgePct >= 4.5 &&
+        horse.combinedScore >= 0.5 &&
+        horse.formTrend !== "nedåtgående";
+      const highlights = [...horse.highlights];
+      if (horse.betDistribution > 0 && valueEdgePct >= 5) {
+        highlights.unshift(`Modellen högre än strecken (+${valueEdgePct.toFixed(1)}%)`);
+      }
+      return {
+        ...horse,
+        estimatedWinPct: Math.round(estimatedWinPct * 10) / 10,
+        valueEdgePct: Math.round(valueEdgePct * 10) / 10,
+        valueScore:
+          marketPct > 0
+            ? Math.round(((estimatedWinPct / marketPct) * 1000)) / 1000
+            : horse.valueScore,
+        isSkrellCandidate,
+        highlights: highlights.slice(0, 5),
+      };
+    })
     .sort((a, b) => b.combinedScore - a.combinedScore);
 
   const byMarket = [...horses].sort((a, b) => b.betDistribution - a.betDistribution);

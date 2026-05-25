@@ -1,5 +1,5 @@
 import { ALLOWED_POOL_GAME_TYPES } from "./game-types";
-import { resolveV85ForNextSaturday } from "./v85-schedule";
+import { resolveV85ForNextSaturday, resolveV86ForNextWednesday } from "./v85-schedule";
 import type { AtgGame, AtgRace, AtgStart, PoolGameType } from "./types";
 
 const ATG_BASE = "https://www.atg.se/services/racinginfo/v1/api";
@@ -36,8 +36,12 @@ export async function fetchRace(raceId: string): Promise<AtgRace> {
 
 export async function resolveGame(
   date: string,
-  preferred: PoolGameType = "V85",
+  preferred: PoolGameType = "V86",
 ): Promise<{ gameId: string; gameType: PoolGameType }> {
+  if (preferred === "V86") {
+    const v86 = await resolveV86ForNextWednesday(date);
+    if (v86) return { gameId: v86.gameId, gameType: "V86" };
+  }
   if (preferred === "V85") {
     const v85 = await resolveV85ForNextSaturday(date);
     if (v85) return { gameId: v85.gameId, gameType: "V85" };
@@ -45,12 +49,12 @@ export async function resolveGame(
 
   const cal = await fetchCalendarDay(date);
   const order: PoolGameType[] =
-    preferred === "V85" ? ["V85", "dd"] : ["dd", "V85"];
+    preferred === "V86" ? ["V86", "V85", "dd"] : preferred === "V85" ? ["V85", "V86", "dd"] : ["dd", "V86", "V85"];
   for (const t of order) {
     const id = findGameId(cal, t);
     if (id) return { gameId: id, gameType: t };
   }
-  throw new Error(`Inget V85 eller Dagens Dubbel hittades för ${date}`);
+  throw new Error(`Inget V86, V85 eller Dagens Dubbel hittades för ${date}`);
 }
 
 export function activeStarts(race: AtgRace): AtgStart[] {
@@ -61,7 +65,7 @@ export function poolKey(gameType: PoolGameType): string {
   return gameType;
 }
 
-/** Spelprocent; för DD/V85 utan pool används vinnarodds. */
+/** Spelprocent; för DD/V85/V86 utan pool används vinnarodds. */
 export function betDistribution(start: AtgStart, gameType: PoolGameType): number {
   const p = start.pools?.[poolKey(gameType)];
   if (p?.betDistribution != null && p.betDistribution > 0) {

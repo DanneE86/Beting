@@ -308,6 +308,96 @@ export type Database = {
         }
         Relationships: []
       }
+      trav_learning_prompts: {
+        Row: {
+          created_at: string
+          game_type: string
+          last_resolved_count: number
+          prompt_text: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          game_type: string
+          last_resolved_count?: number
+          prompt_text?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          game_type?: string
+          last_resolved_count?: number
+          prompt_text?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      trav_predictions: {
+        Row: {
+          analysis_model: string | null
+          created_at: string
+          game_date: string | null
+          game_id: string
+          game_type: string
+          id: string
+          learning_prompt: string | null
+          legs_json: Json
+          meta_json: Json | null
+          model_version: number
+          payouts_json: Json | null
+          postmortem_json: Json | null
+          resolved_at: string | null
+          result_json: Json | null
+          snapshot_json: Json
+          status: string
+          system_hit_summary: Json | null
+          system_json: Json
+          winning_numbers_json: Json | null
+        }
+        Insert: {
+          analysis_model?: string | null
+          created_at?: string
+          game_date?: string | null
+          game_id: string
+          game_type: string
+          id?: string
+          learning_prompt?: string | null
+          legs_json?: Json
+          meta_json?: Json | null
+          model_version?: number
+          payouts_json?: Json | null
+          postmortem_json?: Json | null
+          resolved_at?: string | null
+          result_json?: Json | null
+          snapshot_json?: Json
+          status?: string
+          system_hit_summary?: Json | null
+          system_json?: Json
+          winning_numbers_json?: Json | null
+        }
+        Update: {
+          analysis_model?: string | null
+          created_at?: string
+          game_date?: string | null
+          game_id?: string
+          game_type?: string
+          id?: string
+          learning_prompt?: string | null
+          legs_json?: Json
+          meta_json?: Json | null
+          model_version?: number
+          payouts_json?: Json | null
+          postmortem_json?: Json | null
+          resolved_at?: string | null
+          result_json?: Json | null
+          snapshot_json?: Json
+          status?: string
+          system_hit_summary?: Json | null
+          system_json?: Json
+          winning_numbers_json?: Json | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

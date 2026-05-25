@@ -59,10 +59,11 @@ export async function fetchTravsportForGame(
   for (const t of tasks) unique.set(t.horseId, t);
 
   await mapPool([...unique.values()], CONCURRENCY, async (task) => {
+    let cachedProfile: TravsportHorseProfile | null = null;
     if (useCache && db) {
-      const cached = await db.get(task.horseId);
-      if (cached && isFresh(cached)) {
-        index[task.horseId] = cached;
+      cachedProfile = await db.get(task.horseId);
+      if (cachedProfile && isFresh(cachedProfile)) {
+        index[task.horseId] = cachedProfile;
         return;
       }
     }
@@ -76,6 +77,11 @@ export async function fetchTravsportForGame(
       index[task.horseId] = profile;
       if (db) await db.set(profile);
     } catch (e) {
+      if (cachedProfile) {
+        index[task.horseId] = cachedProfile;
+        console.warn(`Travsport häst ${task.horseId}: använder cache efter fetch-fel`);
+        return;
+      }
       console.warn(`Travsport häst ${task.horseId}:`, e);
     }
   });

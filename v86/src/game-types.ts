@@ -1,7 +1,7 @@
 import type { PoolGameType } from "./types";
 
-/** Endast V85 (lördag) och Dagens Dubbel. */
-export const ALLOWED_POOL_GAME_TYPES: readonly PoolGameType[] = ["V85", "dd"] as const;
+/** V85, V86 och Dagens Dubbel. */
+export const ALLOWED_POOL_GAME_TYPES: readonly PoolGameType[] = ["V85", "V86", "dd"] as const;
 
 export function isAllowedGameType(type: string): type is PoolGameType {
   return (ALLOWED_POOL_GAME_TYPES as readonly string[]).includes(type);
@@ -9,6 +9,7 @@ export function isAllowedGameType(type: string): type is PoolGameType {
 
 export function gameTypeLabel(type: string): string {
   if (type === "V85") return "V85";
+  if (type === "V86") return "V86";
   if (type === "dd") return "Dagens Dubbel";
   return type;
 }

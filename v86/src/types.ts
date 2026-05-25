@@ -1,5 +1,19 @@
-/** V85 (lördag) + Dagens Dubbel (ATG-nyckel `dd`). */
-export type PoolGameType = "V85" | "dd";
+/** V85, V86 och Dagens Dubbel (ATG-nyckel `dd`). */
+export type PoolGameType = "V85" | "V86" | "dd";
+
+export interface AtgPayoutEntry {
+  systems?: number | string;
+  payout?: number;
+  jackpot?: boolean;
+}
+
+export interface AtgPoolResult {
+  payouts?: Record<string, AtgPayoutEntry>;
+  winners?: number[] | { combination?: number[]; odds?: number }[];
+  reserveOrder?: number[];
+  systems?: number | string;
+  value?: { amount?: number };
+}
 
 export interface AtgStart {
   id: string;
@@ -101,8 +115,19 @@ export interface AtgStart {
       minOdds?: number;
       maxOdds?: number;
       trend?: number;
+      result?: AtgPoolResult;
+      payouts?: Record<string, number>;
+      status?: string;
     }
   >;
+  result?: {
+    place?: number;
+    finishOrder?: number;
+    kmTime?: { minutes?: number; seconds?: number; tenths?: number };
+    prizeMoney?: number;
+    finalOdds?: number;
+    startNumber?: number;
+  };
 }
 
 export interface AtgRace {
@@ -111,8 +136,24 @@ export interface AtgRace {
   name?: string;
   distance?: number;
   startMethod?: string;
+  startTime?: string;
+  scheduledStartTime?: string;
+  status?: string;
+  date?: string;
   track?: { id?: number; name?: string; condition?: string };
   starts: AtgStart[];
+  result?: {
+    victoryMargin?: string;
+    scratchings?: number[];
+  };
+  pools?: Record<
+    string,
+    {
+      result?: AtgPoolResult;
+      status?: string;
+      turnover?: number;
+    }
+  >;
 }
 
 export interface AtgGame {
@@ -127,6 +168,8 @@ export interface AtgGame {
       systemCount?: number;
       payouts?: Record<string, number>;
       jackpotAmount?: number;
+      result?: AtgPoolResult;
+      status?: string;
     }
   >;
 }
@@ -153,6 +196,8 @@ export interface ScoredHorse {
   horseScore: number;
   driverScore: number;
   combinedScore: number;
+  estimatedWinPct?: number;
+  valueEdgePct?: number;
   formTrend: "stigande" | "toppad" | "nedåtgående" | "okänd";
   highlights: string[];
   horseChecklist: ChecklistItemView[];
@@ -211,7 +256,12 @@ export interface FetchSnapshot {
     poolStartLabel?: string;
     poolWeekday?: number | null;
     isSaturdayRound?: boolean;
+    isWednesdayRound?: boolean;
     analysisModel?: string;
     travsportHorses?: number;
+    predictionId?: string | null;
+    learningPromptText?: string | null;
+    source?: "live" | "historical-backtest";
+    backtestDate?: string | null;
   };
 }

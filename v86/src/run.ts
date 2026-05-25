@@ -1,9 +1,10 @@
 import { mkdir, writeFile } from "fs/promises";
 import { resolve } from "path";
+import { hybridTravsportCache } from "../../src/lib/travsport-cache-backend";
+import { saveTravPrediction } from "../../src/lib/trav-learning.server";
 import type { FetchSnapshot } from "./types";
 import { buildSnapshot, todayIso } from "./pipeline";
 import { pickBestSkrellLeg } from "./analyze";
-import { fileCacheBackend } from "./travsport/file-cache";
 
 function parseArgs(argv: string[]) {
   const out: Record<string, string> = {};
@@ -73,10 +74,10 @@ export async function runV86Pipeline(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   const snapshot = await buildSnapshot({
     date: args.date ?? todayIso(),
-    gameId: args.game ?? argv.find((a) => a.startsWith("V85_") || a.startsWith("dd_")),
+    gameId: args.game ?? argv.find((a) => a.startsWith("V86_") || a.startsWith("V85_") || a.startsWith("dd_")),
     budgetKr: Number(args.budget ?? 400),
     targetMinPayoutKr: Number(args.minPayout ?? 30_000),
-    travsportDbCache: fileCacheBackend,
+    travsportDbCache: hybridTravsportCache,
   });
 
   const outDir = resolve("v86", "output");
@@ -84,6 +85,13 @@ export async function runV86Pipeline(argv = process.argv.slice(2)) {
   const outFile = resolve(outDir, `${snapshot.game.id.replace(/[/\\?%*:|"<>]/g, "_")}.json`);
   await writeFile(outFile, JSON.stringify(snapshot, null, 2), "utf-8");
   console.log(`Sparat: ${outFile}`);
+
+  try {
+    const predictionId = await saveTravPrediction(snapshot);
+    if (predictionId) console.log(`Historikrad sparad: ${predictionId}`);
+  } catch (error) {
+    console.warn("Kunde inte spara travhistorik från CLI:", (error as Error).message);
+  }
 
   printReport(snapshot);
   return snapshot;

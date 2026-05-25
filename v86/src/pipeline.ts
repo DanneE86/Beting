@@ -10,11 +10,13 @@ import { analyzeGame, pickBestSkrellLeg } from "./analyze";
 import { buildSystem } from "./system-builder";
 import { fetchTravsportForGame } from "./travsport/fetch-game";
 import {
+  collectUpcomingV86,
   collectUpcomingV85,
+  isWednesdayStart,
   isSaturdayStart,
   weekdayFromIso,
 } from "./v85-schedule";
-import type { FetchSnapshot, PoolGameType } from "./types";
+import type { AtgGame, AtgRace, AtgStart, FetchSnapshot, PoolGameType } from "./types";
 
 export interface PipelineInput {
   date?: string;
@@ -36,6 +38,7 @@ export interface GameOption {
   startLabel?: string;
   isUpcoming?: boolean;
   isSaturdayRound?: boolean;
+  isWednesdayRound?: boolean;
 }
 
 export function todayIso(): string {
@@ -94,44 +97,125 @@ export async function listGamesForDate(date: string): Promise<GameOption[]> {
     });
   }
 
+  const upcomingV86 = await collectUpcomingV86(date);
+  for (const u of upcomingV86) {
+    push({
+      id: u.entry.id,
+      type: "V86",
+      typeLabel: u.isWednesday ? "V86 (onsdag)" : "V86",
+      status: u.entry.status ?? "upcoming",
+      startTime: u.startIso,
+      trackNames: u.entry.name,
+      startLabel: formatStartLabel(u.startIso),
+      isUpcoming: u.calendarDate !== date,
+      isWednesdayRound: u.isWednesday,
+    });
+  }
+
   out.sort((a, b) => {
-    if (a.type !== b.type) return a.type === "V85" ? -1 : 1;
-    return (a.startTime ?? "").localeCompare(b.startTime ?? "");
+    const byStart = (a.startTime ?? "").localeCompare(b.startTime ?? "");
+    if (byStart !== 0) return byStart;
+    const order: Record<PoolGameType, number> = { V86: 0, V85: 1, dd: 2 };
+    return order[a.type] - order[b.type];
   });
 
   return out;
 }
 
-/** Förvälj nästa lördags-V85, annars nästa V85 i listan. */
-export function pickDefaultV85Game(games: GameOption[]): GameOption | undefined {
-  const v85 = games.filter((g) => g.type === "V85");
-  if (v85.length === 0) return undefined;
+/** Förvälj närmaste huvudspel: onsdags-V86 före lördags-V85 när det ligger närmast. */
+export function pickDefaultPoolGame(games: GameOption[]): GameOption | undefined {
+  const mainGames = games.filter((g) => g.type === "V86" || g.type === "V85");
+  if (mainGames.length === 0) return undefined;
 
   const now = Date.now();
-  const future = v85.filter((g) => {
+  const future = mainGames.filter((g) => {
     if (!g.startTime) return true;
     return new Date(g.startTime).getTime() >= now - 3600000;
   });
 
-  const saturday = future.find((g) => g.isSaturdayRound);
-  if (saturday) return saturday;
-
-  return future[0] ?? v85[0];
+  const pool = future.length > 0 ? future : mainGames;
+  return [...pool].sort((a, b) => {
+    const byStart = (a.startTime ?? "").localeCompare(b.startTime ?? "");
+    if (byStart !== 0) return byStart;
+    const order: Record<PoolGameType, number> = { V86: 0, V85: 1, dd: 2 };
+    return order[a.type] - order[b.type];
+  })[0];
 }
 
-/** @deprecated Använd pickDefaultV85Game */
-export const pickDefaultV86Game = pickDefaultV85Game;
+/** @deprecated Använd pickDefaultPoolGame */
+export const pickDefaultV85Game = pickDefaultPoolGame;
+/** @deprecated Använd pickDefaultPoolGame */
+export const pickDefaultV86Game = pickDefaultPoolGame;
 
-export async function buildSnapshot(input: PipelineInput): Promise<FetchSnapshot> {
-  const date = input.date ?? todayIso();
+function sanitizeStartForPrematch(start: AtgStart): AtgStart {
+  const sanitizedPools = start.pools
+    ? Object.fromEntries(
+        Object.entries(start.pools).map(([key, value]) => [
+          key,
+          {
+            ...value,
+            result: undefined,
+            payouts: undefined,
+            status: value?.status === "results" ? "open" : value?.status,
+          },
+        ]),
+      )
+    : undefined;
+  return {
+    ...start,
+    result: undefined,
+    pools: sanitizedPools,
+  };
+}
 
-  let gameId = input.gameId;
-  if (!gameId) {
-    const resolved = await resolveGame(date, "V85");
-    gameId = resolved.gameId;
-  }
+function sanitizeRaceForPrematch(race: AtgRace): AtgRace {
+  const sanitizedPools = race.pools
+    ? Object.fromEntries(
+        Object.entries(race.pools).map(([key, value]) => [
+          key,
+          {
+            ...value,
+            result: undefined,
+            status: value?.status === "results" ? "open" : value?.status,
+          },
+        ]),
+      )
+    : undefined;
+  return {
+    ...race,
+    status: race.status === "results" ? "open" : race.status,
+    result: undefined,
+    pools: sanitizedPools,
+    starts: (race.starts ?? []).map(sanitizeStartForPrematch),
+  };
+}
 
-  const game = await fetchGame(gameId);
+export function sanitizeHistoricalGameForPrematch(game: AtgGame): AtgGame {
+  const sanitizedPools = game.pools
+    ? Object.fromEntries(
+        Object.entries(game.pools).map(([key, value]) => [
+          key,
+          {
+            ...value,
+            result: undefined,
+            payouts: value?.payouts,
+            status: value?.status === "results" ? "open" : value?.status,
+          },
+        ]),
+      )
+    : undefined;
+  return {
+    ...game,
+    status: game.status === "results" ? "open" : game.status,
+    pools: sanitizedPools,
+    races: game.races.map(sanitizeRaceForPrematch),
+  };
+}
+
+export async function buildSnapshotFromGame(
+  game: AtgGame,
+  input: Omit<PipelineInput, "date" | "gameId"> = {},
+): Promise<FetchSnapshot> {
   const gameType = game.type as PoolGameType;
 
   const budgetKr = input.budgetKr ?? defaultBudgetKr(gameType);
@@ -156,9 +240,9 @@ export async function buildSnapshot(input: PipelineInput): Promise<FetchSnapshot
   });
 
   let andelsspel;
-  if (input.includeAndelsspel !== false && gameType === "V85") {
+  if (input.includeAndelsspel !== false && gameType !== "dd") {
     try {
-      andelsspel = await fetchAndelShares(gameId, 12);
+      andelsspel = await fetchAndelShares(game.id, 12);
     } catch {
       andelsspel = undefined;
     }
@@ -176,8 +260,22 @@ export async function buildSnapshot(input: PipelineInput): Promise<FetchSnapshot
       poolStartLabel: formatStartLabel(firstRaceStart),
       poolWeekday: weekdayFromIso(firstRaceStart),
       isSaturdayRound: isSaturdayStart(firstRaceStart),
+      isWednesdayRound: isWednesdayStart(firstRaceStart),
       analysisModel: `checklist-v1 + Travsport (${travsportCount} hästar)`,
       travsportHorses: travsportCount,
     },
   };
+}
+
+export async function buildSnapshot(input: PipelineInput): Promise<FetchSnapshot> {
+  const date = input.date ?? todayIso();
+
+  let gameId = input.gameId;
+  if (!gameId) {
+    const resolved = await resolveGame(date, "V86");
+    gameId = resolved.gameId;
+  }
+
+  const game = await fetchGame(gameId);
+  return buildSnapshotFromGame(game, input);
 }
