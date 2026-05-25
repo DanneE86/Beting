@@ -47,7 +47,7 @@ Pop-Location
 if ($ok) {
   Write-Host ""
   Write-Host "Tabeller skapade! Testar..." -ForegroundColor Green
-  node scripts/test-supabase.mjs
+  npm run test:db
 } else {
   Write-Host ""
   Write-Host "Kunde inte ansluta automatiskt." -ForegroundColor Red

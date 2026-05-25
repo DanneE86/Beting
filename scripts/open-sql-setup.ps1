@@ -20,5 +20,5 @@ Write-Host "  2. Tryck Ctrl+V  (klistra in SQL)"
 Write-Host "  3. Klicka RUN  (gron knapp nere till hoger)"
 Write-Host ""
 Write-Host "Nar du ar klar, kor i terminalen:"
-Write-Host "  node scripts/test-supabase.mjs" -ForegroundColor Yellow
+Write-Host "  npm run test:db" -ForegroundColor Yellow
 Write-Host ""
