@@ -23,6 +23,7 @@
     "setup:supabase": "powershell -ExecutionPolicy Bypass -File scripts/setup-supabase-env.ps1",
     "setup:sql": "powershell -ExecutionPolicy Bypass -File scripts/open-sql-setup.ps1",
     "setup:db": "powershell -ExecutionPolicy Bypass -File scripts/run-supabase-setup.ps1",
+    "setup:db:automation": "powershell -ExecutionPolicy Bypass -File scripts/setup-supabase-github-secrets.ps1",
     "test:db": "npx tsx scripts/test-supabase.ts",
     "sync": "npx tsx scripts/sync-all.ts",
     "sync:full": "npx tsx scripts/sync-all.ts --full",
