@@ -119,6 +119,30 @@ function chooseForcedV85Spikes(
 ): {
   spikeByLeg: Map<number, { type: "spik" | "skrell-spik"; number: number }>;
 } {
+  function shouldAddSecondModelSpike(
+    leg: LegAnalysis,
+    hasValueSpike: boolean,
+  ): boolean {
+    if (!hasValueSpike) return true;
+    if (leg.recommendation === "spik") return true;
+
+    const top = topModelHorse(leg);
+    const second = secondModelHorse(leg);
+    const gap = Math.max(0, (top?.combinedScore ?? 0) - (second?.combinedScore ?? 0));
+    const topCombined = top?.combinedScore ?? 0;
+    const topBd = top?.betDistribution ?? 0;
+
+    if (leg.recommendation === "gardering") {
+      return topCombined >= 0.74 && gap >= 0.05;
+    }
+
+    return (
+      scoreModelSpikeLeg(leg) >= 115 &&
+      topCombined >= 0.76 &&
+      (gap >= 0.06 || topBd >= 55)
+    );
+  }
+
   const spikeByLeg = new Map<number, { type: "spik" | "skrell-spik"; number: number }>();
 
   const valueCandidates = legs
@@ -155,7 +179,7 @@ function chooseForcedV85Spikes(
     return { spikeByLeg };
   }
 
-  if (secondModelChoice) {
+  if (secondModelChoice && shouldAddSecondModelSpike(secondModelChoice, Boolean(firstValueChoice))) {
     spikeByLeg.set(secondModelChoice.leg, {
       type: "spik",
       number: topModelHorse(secondModelChoice).number,

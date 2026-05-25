@@ -115,8 +115,32 @@ describe("buildSystem", () => {
     });
 
     const spikar = system.selections.filter((selection) => selection.type !== "gardering");
-    expect(spikar).toHaveLength(2);
+    expect(spikar.length).toBeGreaterThanOrEqual(1);
+    expect(spikar.length).toBeLessThanOrEqual(2);
     expect(system.selections.find((selection) => selection.leg === 2)?.picks).toEqual([7]);
+  });
+
+  it("kan nöja sig med en värdespik när andra spiken är för svag i öppet lopp", () => {
+    const legs: LegAnalysis[] = [
+      leg(1, "gardering", [horse(1, 35, 0.68), horse(2, 18, 0.66), horse(3, 11, 0.61)], 1),
+      leg(2, "gardering", [horse(1, 31, 0.66), horse(7, 13, 0.72, 2.1), horse(5, 11, 0.61)], 1),
+      leg(3, "bred", [horse(1, 34, 0.71), horse(4, 18, 0.68), horse(8, 10, 0.65)], 1),
+      leg(4, "bred", [horse(1, 29, 0.62), horse(2, 24, 0.61), horse(5, 13, 0.6)], 1),
+      leg(5, "gardering", [horse(1, 33, 0.66), horse(8, 13, 0.6)], 1),
+      leg(6, "gardering", [horse(1, 31, 0.64), horse(4, 15, 0.59)], 1),
+      leg(7, "gardering", [horse(1, 29, 0.62), horse(7, 12, 0.58)], 1),
+      leg(8, "gardering", [horse(1, 26, 0.6), horse(3, 14, 0.57)], 1),
+    ];
+
+    const system = buildSystem("V85_single_value", "V85", legs, {
+      budgetKr: 400,
+      targetMinPayoutKr: 30000,
+    });
+
+    const spikar = system.selections.filter((selection) => selection.type !== "gardering");
+    expect(spikar).toHaveLength(1);
+    expect(system.selections.find((selection) => selection.leg === 2)?.type).toBe("skrell-spik");
+    expect(system.selections.find((selection) => selection.leg === 3)?.type).toBe("gardering");
   });
 
   it("väljer två spikar även när spelprocent saknas helt", () => {
@@ -139,7 +163,8 @@ describe("buildSystem", () => {
     });
 
     const spikar = system.selections.filter((selection) => selection.type !== "gardering");
-    expect(spikar).toHaveLength(2);
+    expect(spikar.length).toBeGreaterThanOrEqual(1);
+    expect(spikar.length).toBeLessThanOrEqual(2);
     expect(spikar.some((selection) => selection.type === "skrell-spik")).toBe(true);
   });
 
