@@ -53,21 +53,24 @@ export interface RecommendedMainPoolPlay {
   system: BuiltSystem;
 }
 
-function topModelHorse(leg: LegAnalysis) {
-  return (
-    [...leg.horses].sort((a, b) => (b.combinedScore ?? 0) - (a.combinedScore ?? 0))[0] ??
-    leg.favorite
+function rankedHorses(leg: LegAnalysis) {
+  return [...leg.horses].sort(
+    (a, b) =>
+      (a.projectedRank ?? Number.MAX_SAFE_INTEGER) - (b.projectedRank ?? Number.MAX_SAFE_INTEGER) ||
+      (b.combinedScore ?? 0) - (a.combinedScore ?? 0),
   );
 }
 
+function topModelHorse(leg: LegAnalysis) {
+  return rankedHorses(leg)[0] ?? leg.favorite;
+}
+
 function secondModelHorse(leg: LegAnalysis) {
-  return [...leg.horses].sort((a, b) => (b.combinedScore ?? 0) - (a.combinedScore ?? 0))[1] ?? null;
+  return rankedHorses(leg)[1] ?? null;
 }
 
 function modelRankOfHorse(leg: LegAnalysis, horseNumber: number): number {
-  const index = [...leg.horses]
-    .sort((a, b) => (b.combinedScore ?? 0) - (a.combinedScore ?? 0))
-    .findIndex((horse) => horse.number === horseNumber);
+  const index = rankedHorses(leg).findIndex((horse) => horse.number === horseNumber);
   return index >= 0 ? index + 1 : 999;
 }
 
@@ -241,23 +244,7 @@ function legPickCount(leg: LegAnalysis, mode: "spik" | "skrell-spik" | "garderin
 }
 
 function coverageOrder(leg: LegAnalysis): number[] {
-  const byForm = [...leg.horses].sort(
-    (a, b) => (b.combinedScore ?? b.formScore) - (a.combinedScore ?? a.formScore),
-  );
-  const byMarket = [...leg.horses].sort((a, b) => b.betDistribution - a.betDistribution);
-  const ordered: number[] = [];
-  const addHorse = (horse?: LegAnalysis["horses"][number] | null) => {
-    if (!horse) return;
-    if (!ordered.includes(horse.number)) ordered.push(horse.number);
-  };
-
-  addHorse(topModelHorse(leg));
-  addHorse(leg.skrellSpike);
-  addHorse(leg.favorite);
-  addHorse(secondModelHorse(leg));
-  for (const horse of byMarket) addHorse(horse);
-  for (const horse of byForm) addHorse(horse);
-  return ordered;
+  return rankedHorses(leg).map((horse) => horse.number);
 }
 
 function horseCoverageScore(leg: LegAnalysis, horse: LegAnalysis["horses"][number]): number {
@@ -407,22 +394,9 @@ function ddHorseSelectionScore(leg: LegAnalysis, horse: LegAnalysis["horses"][nu
 }
 
 function ddCoverageOrder(leg: LegAnalysis, forceSkrell = false): number[] {
-  const ordered: number[] = [];
-  const addHorse = (horse?: LegAnalysis["horses"][number] | null) => {
-    if (!horse) return;
-    if (!ordered.includes(horse.number)) ordered.push(horse.number);
-  };
-
-  if (forceSkrell) addHorse(leg.skrellSpike);
-  addHorse(topModelHorse(leg));
-  addHorse(leg.favorite);
-  addHorse(leg.skrellSpike);
-
-  for (const horse of [...leg.horses].sort((a, b) => ddHorseSelectionScore(leg, b) - ddHorseSelectionScore(leg, a))) {
-    addHorse(horse);
-  }
-
-  return ordered;
+  const ordered = rankedHorses(leg).map((horse) => horse.number);
+  if (!forceSkrell || !leg.skrellSpike) return ordered;
+  return [leg.skrellSpike.number, ...ordered.filter((number) => number !== leg.skrellSpike!.number)];
 }
 
 function buildDdSelection(leg: LegAnalysis, picks: number[]): SystemSelection {
@@ -603,28 +577,11 @@ function safeMainPoolHorseScore(leg: LegAnalysis, horse: LegAnalysis["horses"][n
 }
 
 function preferredMainPoolSpikeHorse(leg: LegAnalysis) {
-  return (
-    [...leg.horses].sort(
-      (a, b) =>
-        safeMainPoolHorseScore(leg, b) - safeMainPoolHorseScore(leg, a) ||
-        (b.estimatedWinPct ?? 0) - (a.estimatedWinPct ?? 0),
-    )[0] ?? topModelHorse(leg)
-  );
+  return topModelHorse(leg);
 }
 
 function mainPoolCoverageOrder(leg: LegAnalysis): number[] {
-  return [...leg.horses]
-    .sort((a, b) => {
-      const byCoverage =
-        safeMainPoolHorseScore(leg, b) +
-        horseCoverageScore(leg, b) * 0.35 -
-        (safeMainPoolHorseScore(leg, a) + horseCoverageScore(leg, a) * 0.35);
-      if (byCoverage !== 0) return byCoverage;
-      const byProbability = (b.estimatedWinPct ?? 0) - (a.estimatedWinPct ?? 0);
-      if (byProbability !== 0) return byProbability;
-      return (b.betDistribution ?? 0) - (a.betDistribution ?? 0);
-    })
-    .map((horse) => horse.number);
+  return coverageOrder(leg);
 }
 
 function selectionNoteForLeg(
@@ -635,22 +592,44 @@ function selectionNoteForLeg(
   if (type === "skrell-spik") {
     const horse = leg.horses.find((item) => item.number === picks[0]) ?? leg.skrellSpike ?? leg.favorite;
     return horse.betDistribution > 0
-      ? `Friare värdespik: ${horse.name} (${horse.betDistribution.toFixed(1)}%)`
-      : `Friare värdespik: ${horse.name}`;
+      ? `Värdespik från rank: ${horse.name} (${horse.betDistribution.toFixed(1)}%)`
+      : `Värdespik från rank: ${horse.name}`;
   }
   if (type === "spik") {
     const horse = leg.horses.find((item) => item.number === picks[0]) ?? topModelHorse(leg);
     return horse.betDistribution > 0
-      ? `Friare modellspik: ${horse.name} (${horse.betDistribution.toFixed(1)}%)`
-      : `Friare modellspik: ${horse.name}`;
+      ? `Modellspik från rank: ${horse.name} (${horse.betDistribution.toFixed(1)}%)`
+      : `Modellspik från rank: ${horse.name}`;
   }
   const topNames = picks
     .map((pick) => leg.horses.find((horse) => horse.number === pick)?.name)
     .filter(Boolean)
     .slice(0, 2);
   return topNames.length > 0
-    ? `Friare gardering: ${topNames.join(" + ")}${picks.length > 2 ? " och fler" : ""}`
-    : `Friare gardering med ${picks.length} hästar`;
+    ? `Gardering från rank: ${topNames.join(" + ")}${picks.length > 2 ? " och fler" : ""}`
+    : `Gardering från rank med ${picks.length} hästar`;
+}
+
+function normalizeSelectionForLeg(
+  leg: LegAnalysis,
+  selection: SystemSelection,
+): SystemSelection {
+  if (selection.picks.length > 1) {
+    return {
+      ...selection,
+      type: "gardering",
+      note: selectionNoteForLeg(leg, selection.picks, "gardering"),
+    };
+  }
+  if (selection.picks.length !== 1) return selection;
+  const [pick] = selection.picks;
+  const type: SystemSelection["type"] =
+    leg.skrellSpike?.number === pick ? "skrell-spik" : "spik";
+  return {
+    ...selection,
+    type,
+    note: selectionNoteForLeg(leg, selection.picks, type),
+  };
 }
 
 function buildMainPoolLegOptions(
@@ -775,11 +754,16 @@ function buildMainPoolLegOptions(
 function buildSystemFromSelections(
   gameId: string,
   gameType: PoolGameType,
+  legs: LegAnalysis[],
   options: BuildOptions,
   selections: SystemSelection[],
 ): BuiltSystem {
+  const normalizedSelections = selections.map((selection) => {
+    const leg = legs.find((item) => item.leg === selection.leg);
+    return leg ? normalizeSelectionForLeg(leg, selection) : selection;
+  });
   const unitKr = rowPriceKr(gameType);
-  const rows = product(selections.map((selection) => selection.picks.length));
+  const rows = product(normalizedSelections.map((selection) => selection.picks.length));
   const costKr = rows * unitKr;
   const gameLabel = gameType === "dd" ? "Dagens Dubbel" : gameType;
   return {
@@ -793,8 +777,8 @@ function buildSystemFromSelections(
       `Mål: utdelning ≥ ${options.targetMinPayoutKr.toLocaleString("sv-SE")} kr vid fullträff (${gameLabel}). ` +
       `ATG garanterar inte min utdelning – se atg.se. ` +
       `System: ${rows} rader × ${unitKr} kr = ${costKr.toFixed(2)} kr.`,
-    selections,
-    skrellSpikeLeg: selections.find((selection) => selection.type === "skrell-spik")?.leg ?? null,
+    selections: normalizedSelections,
+    skrellSpikeLeg: normalizedSelections.find((selection) => selection.type === "skrell-spik")?.leg ?? null,
   };
 }
 
@@ -931,10 +915,10 @@ function opennessScore(legs: LegAnalysis[]): number {
 }
 
 function preferredBudgetFromOpenness(score: number): (typeof AUTO_MAIN_POOL_BUDGETS_KR)[number] {
-  if (score >= 0.78) return 1000;
-  if (score >= 0.68) return 900;
-  if (score >= 0.58) return 800;
-  if (score >= 0.46) return 700;
+  if (score >= 0.9) return 1000;
+  if (score >= 0.8) return 900;
+  if (score >= 0.7) return 800;
+  if (score >= 0.58) return 700;
   return 600;
 }
 
@@ -957,6 +941,12 @@ function buildRecommendationReason(
       : metrics.budgetUsage >= 0.88
         ? "systemet använder större delen av budgeten"
         : "högre budget gav inte nog mycket extra täckning";
+  const stabilityText =
+    metrics.probabilitySixPlus >= 0.22
+      ? "träffprofilen är ovanligt stabil"
+      : metrics.probabilitySixPlus >= 0.16
+        ? "träffprofilen är rimligt stabil"
+        : "träffprofilen är fortfarande ganska spetsig";
   const spikeText =
     metrics.spikeCount === 0
       ? "utan spikar"
@@ -967,7 +957,7 @@ function buildRecommendationReason(
     budgetKr === preferredBudget
       ? `${budgetKr} kr matchar loppens öppenhet bäst`
       : `${budgetKr} kr slog de andra nivåerna trots att ${preferredBudget} kr låg närmast öppningsprofilen`;
-  return `${opennessText}: ${budgetText}, ${usageText} och modellen landar ${spikeText}. Målutdelning hålls på minst ${targetMinPayoutKr.toLocaleString("sv-SE")} kr.`;
+  return `${opennessText}: ${budgetText}, ${usageText}, ${stabilityText} och modellen landar ${spikeText}. Målutdelning hålls på minst ${targetMinPayoutKr.toLocaleString("sv-SE")} kr.`;
 }
 
 export function recommendMainPoolPlay(
@@ -1000,9 +990,24 @@ export function recommendMainPoolPlay(
       targetMinPayoutKr,
     });
     const underusePenalty = Math.max(0, 0.94 - metrics.budgetUsage) * 120;
-    const distancePenalty = Math.abs(budgetKr - preferredBudget) / 100 * 7;
-    const costPenalty = (budgetKr - 600) / 100 * 2.5;
-    const score = scoreMainPoolSystem(metrics) - underusePenalty - distancePenalty - costPenalty;
+    const distancePenalty = Math.abs(budgetKr - preferredBudget) / 100 * 9;
+    const costPenalty = (budgetKr - 600) / 100 * 6;
+    const stabilityBias =
+      metrics.probabilitySixPlus * 170 +
+      metrics.coverageBalance * 75 -
+      Math.max(0, metrics.spikeCount - 2) * 18;
+    const unstableHighBudgetPenalty =
+      budgetKr > 600
+        ? Math.max(0, 0.16 - metrics.probabilitySixPlus) * 380 +
+          Math.max(0, metrics.spikeCount - 2) * 16
+        : 0;
+    const score =
+      scoreMainPoolSystem(metrics) +
+      stabilityBias -
+      underusePenalty -
+      distancePenalty -
+      costPenalty -
+      unstableHighBudgetPenalty;
     if (!best || score > best.score) {
       best = { budgetKr, system, metrics, score };
     }
@@ -1286,6 +1291,10 @@ function buildCandidateSystem(
   }
 
   const gameLabel = gameType === "dd" ? "Dagens Dubbel" : gameType;
+  const normalizedSelections = selections.map((selection) => {
+    const leg = legs.find((item) => item.leg === selection.leg);
+    return leg ? normalizeSelectionForLeg(leg, selection) : selection;
+  });
   const estimatedPayoutNote =
     `Mål: utdelning ≥ ${options.targetMinPayoutKr.toLocaleString("sv-SE")} kr vid fullträff (${gameLabel}). ` +
     `ATG garanterar inte min utdelning – se atg.se. ` +
@@ -1299,12 +1308,12 @@ function buildCandidateSystem(
     costKr,
     targetMinPayoutKr: options.targetMinPayoutKr,
     estimatedPayoutNote,
-    selections,
-    skrellSpikeLeg: skrellLegAnalysis?.leg ?? null,
+    selections: normalizedSelections,
+    skrellSpikeLeg: normalizedSelections.find((selection) => selection.type === "skrell-spik")?.leg ?? null,
   };
 }
 
-function pickBestMainPoolSystem(
+function pickBestIndependentMainPoolSystem(
   gameId: string,
   gameType: PoolGameType,
   legs: LegAnalysis[],
@@ -1359,7 +1368,7 @@ function pickBestMainPoolSystem(
   const completedStates = states.filter((state) => state.selections.length === legs.length);
 
   for (const state of completedStates) {
-    const candidate = buildSystemFromSelections(gameId, gameType, options, state.selections);
+    const candidate = buildSystemFromSelections(gameId, gameType, legs, options, state.selections);
     const score = mainPoolCandidateScore(legs, candidate, options, state.localScore);
     if (Number.isFinite(score) && score > bestScore) {
       bestScore = score;
@@ -1376,10 +1385,114 @@ function pickBestMainPoolSystem(
 
   if (!bestSystem && completedStates.length > 0) {
     const fallbackState = [...completedStates].sort((a, b) => b.localScore - a.localScore || b.rows - a.rows)[0]!;
-    return buildSystemFromSelections(gameId, gameType, options, fallbackState.selections);
+    return buildSystemFromSelections(gameId, gameType, legs, options, fallbackState.selections);
   }
 
   return bestSystem ?? legacySystem;
+}
+
+function expandedPicksForLeg(
+  leg: LegAnalysis,
+  currentPicks: number[],
+  addedNumber: number,
+): number[] {
+  const selected = new Set([...currentPicks, addedNumber]);
+  return coverageOrder(leg).filter((number) => selected.has(number));
+}
+
+function expandMainPoolSystemToBudget(
+  gameId: string,
+  gameType: PoolGameType,
+  legs: LegAnalysis[],
+  baseSystem: BuiltSystem,
+  options: BuildOptions,
+): BuiltSystem {
+  const unitKr = rowPriceKr(gameType);
+  const maxRows = Math.max(1, Math.floor(options.budgetKr / unitKr));
+  const selections = baseSystem.selections.map((selection) => ({
+    ...selection,
+    picks: [...selection.picks],
+  }));
+  let rows = product(selections.map((selection) => selection.picks.length));
+  let costKr = rows * unitKr;
+
+  while (costKr < options.budgetKr * 0.92 && rows < maxRows) {
+    let bestExpansion:
+      | {
+          index: number;
+          nextRows: number;
+          nextPicks: number[];
+          score: number;
+        }
+      | null = null;
+
+    for (let index = 0; index < legs.length; index++) {
+      const leg = legs[index];
+      const selection = selections[index];
+      if (!selection) continue;
+      const nextHorse = nextCoverageHorse(leg, selection.picks);
+      if (!nextHorse) continue;
+
+      const nextCount = selection.picks.length + 1;
+      const nextRows = projectedRowsForChange(rows, selection.picks.length, nextCount);
+      if (nextRows > maxRows) continue;
+
+      const score =
+        horseCoverageScore(leg, nextHorse) +
+        garderingPriority(leg) * 0.55 +
+        (selection.picks.length === 1 ? 8 : 0) +
+        (selection.type === "skrell-spik" ? 6 : selection.type === "spik" ? 4 : 0);
+
+      if (!bestExpansion || score > bestExpansion.score) {
+        bestExpansion = {
+          index,
+          nextRows,
+          nextPicks: expandedPicksForLeg(leg, selection.picks, nextHorse.number),
+          score,
+        };
+      }
+    }
+
+    if (!bestExpansion) break;
+
+    selections[bestExpansion.index] = {
+      ...selections[bestExpansion.index],
+      picks: bestExpansion.nextPicks,
+    };
+    rows = bestExpansion.nextRows;
+    costKr = rows * unitKr;
+  }
+
+  return buildSystemFromSelections(gameId, gameType, legs, options, selections);
+}
+
+function buildHierarchicalMainPoolSystem(
+  gameId: string,
+  gameType: PoolGameType,
+  legs: LegAnalysis[],
+  options: BuildOptions,
+): BuiltSystem {
+  // Global invariant for main pools: larger budgets must preserve the smaller
+  // system's picks and only add coverage from the same ranked horse list.
+  const progressiveBudgets = AUTO_MAIN_POOL_BUDGETS_KR.filter((budgetKr) => budgetKr <= options.budgetKr);
+  if (progressiveBudgets.length === 0) {
+    return pickBestIndependentMainPoolSystem(gameId, gameType, legs, options);
+  }
+
+  const [baseBudget, ...nextBudgets] = progressiveBudgets;
+  let system = pickBestIndependentMainPoolSystem(gameId, gameType, legs, {
+    ...options,
+    budgetKr: baseBudget,
+  });
+
+  for (const budgetKr of nextBudgets) {
+    system = expandMainPoolSystemToBudget(gameId, gameType, legs, system, {
+      ...options,
+      budgetKr,
+    });
+  }
+
+  return system;
 }
 
 function projectedRowsForChange(currentRows: number, currentCount: number, nextCount: number): number {
@@ -1462,7 +1575,7 @@ export function buildSystem(
   options: BuildOptions,
 ): BuiltSystem {
   if (gameType !== "dd") {
-    return pickBestMainPoolSystem(gameId, gameType, legs, options);
+    return buildHierarchicalMainPoolSystem(gameId, gameType, legs, options);
   }
   return buildDdSystem(gameId, gameType, legs, options);
 }

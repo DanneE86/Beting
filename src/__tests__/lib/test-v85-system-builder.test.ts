@@ -59,6 +59,19 @@ function leg(
   };
 }
 
+function expectSupersetByLeg(
+  smaller: ReturnType<typeof buildSystem>,
+  larger: ReturnType<typeof buildSystem>,
+) {
+  for (const selection of smaller.selections) {
+    const matching = larger.selections.find((item) => item.leg === selection.leg);
+    expect(matching).toBeTruthy();
+    for (const pick of selection.picks) {
+      expect(matching!.picks).toContain(pick);
+    }
+  }
+}
+
 describe("buildSystem", () => {
   it("respekterar tvingad skrällspik i V85 utan krav på två spikar", () => {
     const legs: LegAnalysis[] = [
@@ -212,7 +225,7 @@ describe("buildSystem", () => {
     expect(system.costKr).toBeLessThanOrEqual(50);
   });
 
-  it("lägger extra hästar först i öppet lopp med skrällpotential", () => {
+  it("behåller öppet DD-lopp med skrällpotential garderat inom budget", () => {
     const legs: LegAnalysis[] = [
       leg(
         1,
@@ -241,9 +254,9 @@ describe("buildSystem", () => {
     });
 
     expect(system.rows).toBeLessThanOrEqual(6);
-    expect(system.selections.find((selection) => selection.leg === 2)?.picks.length ?? 0).toBeGreaterThanOrEqual(
-      system.selections.find((selection) => selection.leg === 1)?.picks.length ?? 0,
-    );
+    expect(system.costKr).toBeLessThanOrEqual(60);
+    expect(system.selections.find((selection) => selection.leg === 2)?.picks.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(system.selections.find((selection) => selection.leg === 2)?.picks).toContain(7);
   });
 
   it("håller ett hårt budgettak även när grundsystemet blir för stort", () => {
@@ -290,6 +303,56 @@ describe("buildSystem", () => {
     expect(system.costKr).toBeLessThanOrEqual(50);
     expect(system.rows).toBeLessThanOrEqual(5);
     expect(system.selections.every((selection) => selection.picks.length >= 1)).toBe(true);
+  });
+
+  it("bygger större V85-budget som en utökning av mindre system på samma data", () => {
+    const legs: LegAnalysis[] = [
+      leg(1, "gardering", [horse(1, 35, 0.71), horse(2, 24, 0.68), horse(3, 16, 0.63), horse(4, 10, 0.58)], 1),
+      leg(2, "bred", [horse(5, 28, 0.69), horse(7, 21, 0.67), horse(8, 15, 0.64), horse(9, 11, 0.6)], 5),
+      leg(3, "spik", [horse(3, 44, 0.82), horse(1, 19, 0.61), horse(6, 9, 0.57)], 3),
+      leg(4, "gardering", [horse(2, 33, 0.68), horse(4, 22, 0.65), horse(7, 13, 0.61), horse(9, 8, 0.56)], 2),
+      leg(5, "gardering", [horse(8, 31, 0.67), horse(5, 20, 0.64), horse(1, 15, 0.62), horse(10, 9, 0.58)], 8),
+      leg(6, "gardering", [horse(10, 29, 0.66), horse(3, 21, 0.64), horse(4, 13, 0.6), horse(6, 8, 0.55)], 10),
+      leg(7, "gardering", [horse(6, 27, 0.65), horse(9, 19, 0.63), horse(2, 14, 0.6), horse(11, 7, 0.56)], 6),
+      leg(8, "gardering", [horse(4, 30, 0.66), horse(12, 18, 0.63), horse(7, 12, 0.59), horse(1, 9, 0.57)], 4),
+    ];
+
+    const system600 = buildSystem("V85_monotonic", "V85", legs, {
+      budgetKr: 600,
+      targetMinPayoutKr: 30000,
+    });
+    const system1000 = buildSystem("V85_monotonic", "V85", legs, {
+      budgetKr: 1000,
+      targetMinPayoutKr: 30000,
+    });
+
+    expect(system1000.costKr).toBeGreaterThanOrEqual(system600.costKr);
+    expectSupersetByLeg(system600, system1000);
+  });
+
+  it("bygger större V86-budget som en utökning av mindre system på samma data", () => {
+    const legs: LegAnalysis[] = [
+      leg(1, "gardering", [horse(1, 34, 0.7), horse(2, 23, 0.67), horse(5, 15, 0.63), horse(8, 9, 0.58)], 1),
+      leg(2, "bred", [horse(7, 26, 0.68), horse(3, 24, 0.67), horse(10, 14, 0.64), horse(1, 11, 0.61)], 7),
+      leg(3, "spik", [horse(5, 48, 0.84), horse(2, 18, 0.61), horse(8, 7, 0.56)], 5),
+      leg(4, "gardering", [horse(4, 32, 0.67), horse(6, 21, 0.64), horse(9, 12, 0.6), horse(1, 8, 0.55)], 4),
+      leg(5, "gardering", [horse(11, 30, 0.66), horse(3, 22, 0.64), horse(8, 14, 0.61), horse(5, 10, 0.58)], 11),
+      leg(6, "gardering", [horse(10, 28, 0.65), horse(1, 20, 0.63), horse(7, 13, 0.59), horse(4, 8, 0.55)], 10),
+      leg(7, "gardering", [horse(9, 27, 0.64), horse(2, 19, 0.62), horse(6, 14, 0.6), horse(12, 7, 0.56)], 9),
+      leg(8, "gardering", [horse(3, 29, 0.65), horse(5, 18, 0.62), horse(10, 13, 0.59), horse(1, 8, 0.56)], 3),
+    ];
+
+    const system600 = buildSystem("V86_monotonic", "V86", legs, {
+      budgetKr: 600,
+      targetMinPayoutKr: 30000,
+    });
+    const system1000 = buildSystem("V86_monotonic", "V86", legs, {
+      budgetKr: 1000,
+      targetMinPayoutKr: 30000,
+    });
+
+    expect(system1000.costKr).toBeGreaterThanOrEqual(system600.costKr);
+    expectSupersetByLeg(system600, system1000);
   });
 
   it("auto-föreslår en huvudspelsbudget inom 600-1000 kr och minst 30k målutdelning", () => {

@@ -130,7 +130,7 @@ function payoutRowsOf(payouts: unknown) {
 }
 
 function visibleHistoryRows(rows: any[] | undefined) {
-  return Array.isArray(rows) ? rows.filter((row) => row?.gameType !== "V86") : [];
+  return Array.isArray(rows) ? rows : [];
 }
 
 function analysisLegsOf(legs: unknown) {
@@ -247,25 +247,26 @@ function V86Dashboard() {
   });
 
   const games = gamesQ.data?.games ?? [];
-  const visibleGames = useMemo(() => games.filter((g) => g.type !== "V86"), [games]);
+  const visibleGames = useMemo(() => games, [games]);
   const selectedGame = visibleGames.find((g) => g.id === gameId);
   const isV85Game = selectedGame?.type === "V85";
+  const isV86Game = selectedGame?.type === "V86";
   const isDdGame = selectedGame?.type === "dd";
-  const supportsAutoBudget = isV85Game || isDdGame;
-  const historyFilterType = selectedGame?.type === "V85" || selectedGame?.type === "dd" ? selectedGame.type : "all";
+  const supportsAutoBudget = isV85Game || isV86Game || isDdGame;
+  const historyFilterType = selectedGame?.type ?? "all";
 
   useEffect(() => {
     if (!visibleGames.length) return;
     const preferred =
-      visibleGames.find((g) => g.type === "dd") ??
       pickDefaultPoolGame(visibleGames) ??
+      visibleGames.find((g) => g.type === "dd") ??
       visibleGames[0];
     if (preferred && (!gameId || !visibleGames.some((g) => g.id === gameId))) {
       setGameId(preferred.id);
       if (preferred.type === "dd") {
         setBudgetKr(DEFAULT_DD_BUDGET_KR);
         setMinPayout(DEFAULT_DD_MIN_PAYOUT_KR);
-      } else if (preferred.type === "V85") {
+      } else if (preferred.type === "V85" || preferred.type === "V86") {
         setBudgetKr(DEFAULT_TRAV_BUDGET_KR);
         setMinPayout(DEFAULT_TRAV_MIN_PAYOUT_KR);
       }
@@ -277,7 +278,7 @@ function V86Dashboard() {
     if (selectedGame.type === "dd") {
       setBudgetKr((b) => (b === DEFAULT_TRAV_BUDGET_KR ? DEFAULT_DD_BUDGET_KR : b));
       setMinPayout((m) => (m === DEFAULT_TRAV_MIN_PAYOUT_KR ? DEFAULT_DD_MIN_PAYOUT_KR : m));
-    } else if (selectedGame.type === "V85") {
+    } else if (selectedGame.type === "V85" || selectedGame.type === "V86") {
       setBudgetKr((b) => (b === DEFAULT_DD_BUDGET_KR ? DEFAULT_TRAV_BUDGET_KR : b));
       setMinPayout((m) => (m === DEFAULT_DD_MIN_PAYOUT_KR ? DEFAULT_TRAV_MIN_PAYOUT_KR : m));
     }
@@ -400,7 +401,7 @@ function V86Dashboard() {
                 className="flex h-10 w-full rounded-md border border-[#1e3d2a] bg-[#0c1410] px-3 text-sm text-[#e8f0ea]"
               >
                 {visibleGames.length === 0 && (
-                  <option value="">Inget V85 eller DD denna dag</option>
+                  <option value="">Inget V85, V86 eller DD denna dag</option>
                 )}
                 {visibleGames.map((g: GameOption) => (
                   <option key={g.id} value={g.id}>
@@ -540,20 +541,6 @@ function V86Dashboard() {
             </a>
           </div>
 
-          {activePrompt && (
-            <Card className="border-[#2d6b45] bg-[#13261c] p-4 shadow-none">
-              <div className="mb-2 flex items-center gap-2 text-[#d4f5e2]">
-                <Brain className="h-4 w-4 text-[#5ec98a]" />
-                <h3 className="font-medium">
-                  Aktiv lärprompt {snapshot.game.type === "V85" ? snapshot.game.type : ""}
-                </h3>
-              </div>
-              <p className="whitespace-pre-wrap text-xs leading-5 text-[#b8f0d0]">
-                {activePrompt}
-              </p>
-            </Card>
-          )}
-
           <Card className="border-[#2d6b45] bg-[#13261c] p-4 shadow-none">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
@@ -613,6 +600,31 @@ function V86Dashboard() {
                 </div>
               ))}
             </div>
+          </Card>
+
+          {activePrompt && (
+            <Card className="border-[#2d6b45] bg-[#13261c] p-4 shadow-none">
+              <div className="mb-2 flex items-center gap-2 text-[#d4f5e2]">
+                <Brain className="h-4 w-4 text-[#5ec98a]" />
+                <h3 className="font-medium">
+                  Aktiv lärprompt {snapshot.game.type === "V85" ? snapshot.game.type : ""}
+                </h3>
+              </div>
+              <p className="whitespace-pre-wrap text-xs leading-5 text-[#b8f0d0]">
+                {activePrompt}
+              </p>
+            </Card>
+          )}
+
+          <Card className="border-[#2d6b45] bg-[#13261c] p-4 shadow-none">
+            <h2 className="text-lg font-semibold text-[#d4f5e2]">
+              Steg 1: ranka varje lopp först
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm text-[#b8f0d0]">
+              Modellen går nu alltid igenom hela avdelningen först och sätter en
+              full hästrank med vinstprocent, spelprocent och kommentar. Först när
+              ranken är klar byggs systemet från samma ordning.
+            </p>
           </Card>
 
           <div className="grid gap-4 lg:grid-cols-2">
@@ -744,6 +756,16 @@ function V86Dashboard() {
             <HorseAnalysisTables legs={analysisLegsOf(snapshot.legs)} />
           </Card>
 
+          <Card className="border-[#2d6b45] bg-[#13261c] p-4 shadow-none">
+            <h2 className="text-lg font-semibold text-[#d4f5e2]">
+              Steg 2: bygg system från ranken
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm text-[#b8f0d0]">
+              Kupongen plockar nu hästar direkt från den rankade listan i varje avdelning.
+              Spik är rank 1 i loppet, och garderingar fylls på i rankordning.
+            </p>
+          </Card>
+
           {snapshot.andelsspel && snapshot.andelsspel.length > 0 && (
             <Card className="border-[#1e3d2a] bg-[#111c16] p-4 shadow-none">
               <h3 className="mb-3 font-medium text-[#d4f5e2]">
@@ -781,7 +803,7 @@ function V86Dashboard() {
               Historik, facit och lärdomar
             </h2>
             <p className="text-sm text-[#7fa892]">
-              Sparade analyser för {historyFilterType === "all" ? "V85 och Dagens Dubbel" : historyFilterType}. Resolve:a avgjorda omgångar för att hämta utdelning och postmortem.
+              Sparade analyser för {historyFilterType === "all" ? "V85, V86 och Dagens Dubbel" : historyFilterType}. Resolve:a avgjorda omgångar för att hämta utdelning och postmortem.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1159,7 +1181,7 @@ function V86Dashboard() {
           </div>
         ) : (
           <p className="mt-4 text-sm text-[#7fa892]">
-            Ingen sparad V85- eller DD-historik ännu. Kör en analys så lagras första snapshoten.
+            Ingen sparad V85-, V86- eller DD-historik ännu. Kör en analys så lagras första snapshoten.
           </p>
         )}
       </Card>

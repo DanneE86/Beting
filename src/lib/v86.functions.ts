@@ -59,9 +59,10 @@ export const v86Analyze = createServerFn({ method: "POST" })
       budgetKr: data.budgetKr,
       targetMinPayoutKr: data.targetMinPayoutKr,
       autoBudget: data.autoBudget,
-      includeAndelsspel: true,
+      includeAndelsspel: false,
       includeTravsport: true,
       travsportDbCache: hybridTravsportCache,
+      travsportAllowStaleCache: true,
     });
     const [predictionId, learningPromptText] = await Promise.all([
       saveTravPrediction(snapshot),
