@@ -1,5 +1,5 @@
 import { ALLOWED_POOL_GAME_TYPES } from "./game-types";
-import { resolveV85ForNextSaturday, resolveV86ForNextWednesday } from "./v85-schedule";
+import { resolvePrimaryDd, resolveV85ForNextSaturday, resolveV86ForNextWednesday } from "./v85-schedule";
 import type { AtgGame, AtgRace, AtgStart, PoolGameType } from "./types";
 
 const ATG_BASE = "https://www.atg.se/services/racinginfo/v1/api";
@@ -38,6 +38,10 @@ export async function resolveGame(
   date: string,
   preferred: PoolGameType = "V86",
 ): Promise<{ gameId: string; gameType: PoolGameType }> {
+  if (preferred === "dd") {
+    const dd = await resolvePrimaryDd(date);
+    if (dd) return { gameId: dd.gameId, gameType: "dd" };
+  }
   if (preferred === "V86") {
     const v86 = await resolveV86ForNextWednesday(date);
     if (v86) return { gameId: v86.gameId, gameType: "V86" };

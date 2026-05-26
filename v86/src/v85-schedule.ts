@@ -39,7 +39,7 @@ function addDaysIso(isoDate: string, days: number): string {
 
 async function collectUpcomingPoolType(
   fromDate: string,
-  poolType: "V85" | "V86",
+  poolType: "V85" | "V86" | "dd",
 ): Promise<
   {
     calendarDate: string;
@@ -75,7 +75,8 @@ async function collectUpcomingPoolType(
         calendarDate: day,
         entry,
         startIso,
-        isPrimaryDay: poolType === "V85" ? isSaturdayStart(startIso) : isWednesdayStart(startIso),
+        isPrimaryDay:
+          poolType === "V85" ? isSaturdayStart(startIso) : poolType === "V86" ? isWednesdayStart(startIso) : true,
       });
     }
   }
@@ -94,6 +95,12 @@ export async function collectUpcomingV85(fromDate: string) {
 export async function collectUpcomingV86(fromDate: string) {
   const found = await collectUpcomingPoolType(fromDate, "V86");
   return found.map((item) => ({ ...item, isWednesday: item.isPrimaryDay }));
+}
+
+/** Alla DD-omgångar från fromDate och upp till 4 veckor framåt. */
+export async function collectUpcomingDd(fromDate: string) {
+  const found = await collectUpcomingPoolType(fromDate, "dd");
+  return found.map((item) => ({ ...item, isPrimaryDd: item.isPrimaryDay }));
 }
 
 /** Nästa kommande lördags-V85, annars nästa V85 i tiden. */
@@ -181,5 +188,27 @@ export async function resolveV86ForNextWednesday(fromDate: string): Promise<{
     startTime: pick.startIso,
     calendarDate: pick.calendarDate,
     isWednesdayRound: pick.isWednesday,
+  };
+}
+
+export async function resolvePrimaryDd(fromDate: string): Promise<{
+  gameId: string;
+  gameType: PoolGameType;
+  startTime: string;
+  calendarDate: string;
+} | null> {
+  const upcoming = await collectUpcomingDd(fromDate);
+  if (upcoming.length === 0) return null;
+
+  const now = Date.now();
+  const future = upcoming.filter((u) => parseStart(u.startIso)!.getTime() >= now - 60 * 60 * 1000);
+  const pool = future.length > 0 ? future : upcoming;
+  const pick = pool[0];
+
+  return {
+    gameId: pick.entry.id,
+    gameType: "dd",
+    startTime: pick.startIso,
+    calendarDate: pick.calendarDate,
   };
 }

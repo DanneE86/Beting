@@ -129,6 +129,10 @@ function payoutRowsOf(payouts: unknown) {
     }));
 }
 
+function visibleHistoryRows(rows: any[] | undefined) {
+  return Array.isArray(rows) ? rows.filter((row) => row?.gameType !== "V86") : [];
+}
+
 function analysisLegsOf(legs: unknown) {
   return Array.isArray(legs)
     ? (legs as Array<{
@@ -248,7 +252,7 @@ function V86Dashboard() {
   const isV85Game = selectedGame?.type === "V85";
   const isDdGame = selectedGame?.type === "dd";
   const supportsAutoBudget = isV85Game || isDdGame;
-  const historyFilterType = isV85Game ? selectedGame.type : "all";
+  const historyFilterType = selectedGame?.type === "V85" || selectedGame?.type === "dd" ? selectedGame.type : "all";
 
   useEffect(() => {
     if (!visibleGames.length) return;
@@ -777,7 +781,7 @@ function V86Dashboard() {
               Historik, facit och lärdomar
             </h2>
             <p className="text-sm text-[#7fa892]">
-              Sparade analyser för {historyFilterType === "all" ? "trav" : historyFilterType}. Resolve:a avgjorda omgångar för att hämta utdelning och postmortem.
+              Sparade analyser för {historyFilterType === "all" ? "V85 och Dagens Dubbel" : historyFilterType}. Resolve:a avgjorda omgångar för att hämta utdelning och postmortem.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -912,9 +916,9 @@ function V86Dashboard() {
               <Skeleton key={i} className="h-24 bg-[#1e3d2a]" />
             ))}
           </div>
-        ) : historyQ.data?.rows?.length ? (
+        ) : visibleHistoryRows(historyQ.data?.rows).length ? (
           <div className="mt-4 space-y-3">
-            {historyQ.data.rows.map((row: any) => {
+            {visibleHistoryRows(historyQ.data?.rows).map((row: any) => {
               const selections = systemSelectionsOf(row.system);
               const storedLegs = analysisLegsOf(row.legs);
               const hitSummary = hitSummaryOf(row.hitSummary);
@@ -1155,7 +1159,7 @@ function V86Dashboard() {
           </div>
         ) : (
           <p className="mt-4 text-sm text-[#7fa892]">
-            Ingen sparad travhistorik ännu. Kör en analys så lagras första snapshoten.
+            Ingen sparad V85- eller DD-historik ännu. Kör en analys så lagras första snapshoten.
           </p>
         )}
       </Card>

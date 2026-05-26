@@ -16,6 +16,7 @@ import {
 import { fetchTravsportForGame } from "./travsport/fetch-game";
 import type { TravsportIndex } from "./travsport/types";
 import {
+  collectUpcomingDd,
   collectUpcomingV86,
   collectUpcomingV85,
   isWednesdayStart,
@@ -127,10 +128,24 @@ export async function listGamesForDate(date: string): Promise<GameOption[]> {
     });
   }
 
+  const upcomingDd = await collectUpcomingDd(date);
+  for (const u of upcomingDd) {
+    push({
+      id: u.entry.id,
+      type: "dd",
+      typeLabel: gameTypeLabel("dd"),
+      status: u.entry.status ?? "upcoming",
+      startTime: u.startIso,
+      trackNames: u.entry.name,
+      startLabel: formatStartLabel(u.startIso),
+      isUpcoming: u.calendarDate !== date,
+    });
+  }
+
   out.sort((a, b) => {
     const byStart = (a.startTime ?? "").localeCompare(b.startTime ?? "");
     if (byStart !== 0) return byStart;
-    const order: Record<PoolGameType, number> = { V86: 0, V85: 1, dd: 2 };
+    const order: Record<PoolGameType, number> = { dd: 0, V85: 1, V86: 2 };
     return order[a.type] - order[b.type];
   });
 
