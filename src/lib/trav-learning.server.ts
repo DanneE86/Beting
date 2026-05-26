@@ -2,10 +2,13 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { hybridTravsportCache } from "./travsport-cache-backend";
 import { fetchCalendarDay, fetchGame, listAllowedGamesFromCalendar } from "../../v86/src/atg-api";
+import { rowPriceKr } from "../../v86/src/game-types";
 import {
+  buildSnapshotRaceData,
   buildSnapshotFromGame,
   sanitizeHistoricalGameForPrematch,
 } from "../../v86/src/pipeline";
+import { fetchTravsportForGame } from "../../v86/src/travsport/fetch-game";
 import type {
   AtgGame,
   AtgRace,
@@ -24,6 +27,16 @@ export type TravResolvedLeg = {
   winners: number[];
   reserveOrder: number[];
   victoryMargin?: string | null;
+  finishers: Array<{
+    number: number;
+    name: string;
+    finishOrder: number | null;
+    place: number | null;
+    kmTime: string | null;
+    finalOdds: number | null;
+    postPosition: number | null;
+    startNumber: number | null;
+  }>;
   topFinishers: Array<{
     number: number;
     name: string;
@@ -103,7 +116,7 @@ function extractLegResult(race: AtgRace, gameType: PoolGameType, leg: number): T
   const racePool = race.pools?.[gameType];
   const winners = numbersFromPoolWinners(racePool?.result?.winners);
   const reserveOrder = Array.isArray(racePool?.result?.reserveOrder) ? racePool?.result?.reserveOrder ?? [] : [];
-  const topFinishers = [...(race.starts ?? [])]
+  const finishers = [...(race.starts ?? [])]
     .map((start: AtgStart) => ({
       number: start.number,
       name: start.horse?.name ?? `nr ${start.number}`,
@@ -114,8 +127,8 @@ function extractLegResult(race: AtgRace, gameType: PoolGameType, leg: number): T
       postPosition: start.postPosition ?? null,
       startNumber: start.result?.startNumber ?? null,
     }))
-    .sort((a, b) => (a.finishOrder ?? 999) - (b.finishOrder ?? 999))
-    .slice(0, 6);
+    .sort((a, b) => (a.finishOrder ?? 999) - (b.finishOrder ?? 999));
+  const topFinishers = finishers.slice(0, 6);
 
   return {
     leg,
@@ -124,6 +137,7 @@ function extractLegResult(race: AtgRace, gameType: PoolGameType, leg: number): T
     winners,
     reserveOrder,
     victoryMargin: race.result?.victoryMargin ?? null,
+    finishers,
     topFinishers,
   };
 }
@@ -136,6 +150,25 @@ function extractPayoutSummary(game: AtgGame) {
     jackpotAmount: pool?.jackpotAmount ?? null,
     resultPayouts: pool?.result?.payouts ?? null,
     distributionPayouts: pool?.payouts ?? null,
+    winningCombinations: Array.isArray(pool?.result?.winners)
+      ? pool.result.winners.flatMap((winner) =>
+          typeof winner === "object" && winner && "combination" in winner
+            ? [
+                {
+                  combination: Array.isArray((winner as { combination?: number[] }).combination)
+                    ? ((winner as { combination?: number[] }).combination ?? []).filter(
+                        (value) => typeof value === "number",
+                      )
+                    : [],
+                  payoutKr:
+                    typeof (winner as { odds?: number }).odds === "number"
+                      ? ((winner as { odds?: number }).odds ?? 0) * rowPriceKr(game.type)
+                      : null,
+                },
+              ]
+            : [],
+        )
+      : null,
   };
 }
 
@@ -183,6 +216,30 @@ export function buildSystemHitSummary(
   }
 
   const correctLegs = hitLegs.length;
+  if (resolved.gameType === "dd") {
+    const winningCombinations =
+      resolved.payouts.winningCombinations?.filter((entry) =>
+        entry.combination.every((winner, index) => system.selections[index]?.picks.includes(winner)),
+      ) ?? [];
+    const payoutAmountKr =
+      winningCombinations.length > 0
+        ? winningCombinations.reduce((sum, entry) => sum + (entry.payoutKr ?? 0), 0)
+        : null;
+    return {
+      totalLegs: system.selections.length,
+      correctLegs,
+      fullHit: correctLegs === system.selections.length,
+      payoutTierHit: winningCombinations.length > 0 ? String(correctLegs) : null,
+      payoutAmountKr,
+      payoutPerWinningRowKr:
+        winningCombinations.length > 0 && payoutAmountKr != null
+          ? payoutAmountKr / winningCombinations.length
+          : null,
+      winningRowCount: winningCombinations.length,
+      hitLegs,
+      missLegs,
+    };
+  }
   const payoutTierHit =
     resolved.payouts.resultPayouts && resolved.payouts.resultPayouts[String(correctLegs)]
       ? String(correctLegs)
@@ -546,15 +603,28 @@ async function findExistingTravPrediction(
   );
 }
 
+async function nextTravPredictionVersion(gameId: string, gameType: PoolGameType): Promise<number> {
+  const { count } = await supabaseAdmin
+    .from("trav_predictions")
+    .select("id", { count: "exact", head: true })
+    .eq("game_id", gameId)
+    .eq("game_type", gameType);
+  return (count ?? 0) + 1;
+}
+
 export async function saveTravPrediction(
   snapshot: FetchSnapshot,
   options: SaveTravPredictionOptions = {},
 ): Promise<string | null> {
   const learningPrompt = await getTravLearningPrompt(snapshot.game.type).catch(() => null);
   const source = options.source ?? snapshot.meta?.source ?? "live";
+  const analysisSavedAt = new Date().toISOString();
+  const analysisVersion = options.dedupe ? 1 : await nextTravPredictionVersion(snapshot.game.id, snapshot.game.type);
   const metaJson = {
     ...(snapshot.meta ?? {}),
     source,
+    analysisVersion,
+    analysisSavedAt,
     backtestDate: options.backtestDate ?? snapshot.meta?.backtestDate ?? null,
     ...(options.extraMeta ?? {}),
   } as Json;
@@ -795,7 +865,7 @@ export async function backtestTravHistory(input: {
   targetMinPayoutKr?: number;
   autoBudget?: boolean;
 }) {
-  const maxGames = Math.max(1, Math.min(input.maxGames ?? RECENT_TRAV_LEARNING_WINDOW, 52));
+  const maxGames = Math.max(1, Math.min(input.maxGames ?? RECENT_TRAV_LEARNING_WINDOW, 200));
   const rows: Array<{
     id: string | null;
     gameId: string;
@@ -893,7 +963,7 @@ export async function getTravHistory(limit = 20, gameType?: PoolGameType | null)
   let query = supabaseAdmin
     .from("trav_predictions")
     .select(
-      "id, game_id, game_type, game_date, status, created_at, resolved_at, system_json, result_json, payouts_json, winning_numbers_json, system_hit_summary, postmortem_json, analysis_model, learning_prompt, meta_json",
+      "id, game_id, game_type, game_date, status, created_at, resolved_at, system_json, legs_json, result_json, payouts_json, winning_numbers_json, system_hit_summary, postmortem_json, analysis_model, learning_prompt, meta_json",
     )
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -916,6 +986,7 @@ export async function getTravHistory(limit = 20, gameType?: PoolGameType | null)
       createdAt: row.created_at,
       resolvedAt: row.resolved_at,
       system: row.system_json,
+      legs: row.legs_json,
       result: row.result_json,
       payouts: row.payouts_json,
       winningNumbers: row.winning_numbers_json,
@@ -926,6 +997,80 @@ export async function getTravHistory(limit = 20, gameType?: PoolGameType | null)
       meta: row.meta_json,
     })),
     prompts: prompts ?? [],
+  };
+}
+
+export async function backfillTravPredictionRaceData(limit = 100, gameType?: PoolGameType | null) {
+  let query = supabaseAdmin
+    .from("trav_predictions")
+    .select("id, game_type, snapshot_json, meta_json")
+    .order("created_at", { ascending: false })
+    .limit(Math.max(1, Math.min(limit, 500)));
+  if (gameType) query = query.eq("game_type", gameType);
+
+  const { data, error } = await query;
+  if (error || !data) {
+    return { checked: 0, updated: 0, skipped: 0 };
+  }
+
+  let updated = 0;
+  let skipped = 0;
+
+  for (const row of data) {
+    const snapshot = (row.snapshot_json ?? null) as FetchSnapshot | null;
+    if (!snapshot?.game?.id || !Array.isArray(snapshot.game.races)) {
+      skipped++;
+      continue;
+    }
+    if (Array.isArray(snapshot.raceData) && snapshot.raceData.length > 0) {
+      skipped++;
+      continue;
+    }
+
+    const travsportIndex = await fetchTravsportForGame(snapshot.game, {
+      useCache: true,
+      dbCache: hybridTravsportCache,
+      allowStaleCache: true,
+    }).catch(() => ({}));
+
+    const raceData = buildSnapshotRaceData(snapshot.game, travsportIndex);
+    const fullRaceDataStarts = raceData.reduce((sum, race) => sum + race.starts.length, 0);
+    const nextSnapshot: FetchSnapshot = {
+      ...snapshot,
+      raceData,
+      meta: {
+        ...(snapshot.meta ?? {}),
+        fullRaceDataStored: true,
+        fullRaceDataRaces: raceData.length,
+        fullRaceDataStarts,
+      },
+    };
+    const nextMetaJson = {
+      ...((row.meta_json ?? {}) as Record<string, Json | undefined>),
+      fullRaceDataStored: true,
+      fullRaceDataRaces: raceData.length,
+      fullRaceDataStarts,
+    } as Json;
+
+    const { error: updateError } = await supabaseAdmin
+      .from("trav_predictions")
+      .update({
+        snapshot_json: nextSnapshot as unknown as Json,
+        meta_json: nextMetaJson,
+      })
+      .eq("id", row.id);
+    if (updateError) {
+      console.warn("backfillTravPredictionRaceData update failed", updateError.message);
+      skipped++;
+      continue;
+    }
+    updated++;
+  }
+
+  return {
+    checked: data.length,
+    updated,
+    skipped,
   };
 }
 

@@ -76,6 +76,49 @@ function buildTipNote(top: ScoredHorse): string {
   return parts.join(" · ");
 }
 
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function projectedFinishLabel(rank: number, fieldSize: number): string {
+  if (rank === 1) return "1:a";
+  if (rank === 2) return "2:a";
+  if (rank === 3) return "3:a";
+  if (rank <= Math.max(3, Math.ceil(fieldSize / 3))) return "plats";
+  if (rank <= Math.max(5, Math.ceil(fieldSize / 2))) return "utmanare";
+  return "outsider";
+}
+
+function buildHorseAnalystComment(
+  horse: ScoredHorse,
+  rank: number,
+  fieldSize: number,
+): string {
+  const parts: string[] = [];
+  const marketRank = horse.marketRank ?? rank;
+  const edge = horse.valueEdgePct ?? 0;
+
+  if (rank === 1) parts.push("Modellens förstahäst");
+  else if (rank <= 3) parts.push(`Tidig rank ${rank}`);
+  else parts.push("Behöver klaff på vägen");
+
+  if (edge >= 5) parts.push("spelvärd mot strecken");
+  else if (edge <= -5) parts.push("överstreckad just nu");
+
+  if (horse.formTrend === "stigande" || horse.formTrend === "toppad") parts.push("positiv formkurva");
+  else if (horse.formTrend === "nedåtgående") parts.push("formfrågetecken");
+
+  if (marketRank - rank >= 2) parts.push("modellen tror mer än marknaden");
+  else if (rank - marketRank >= 2) parts.push("marknaden tror mer än modellen");
+
+  if (horse.highlights.length > 0) {
+    parts.push(horse.highlights[0]!);
+  }
+
+  const uniqueParts = parts.filter((part, index) => parts.indexOf(part) === index).slice(0, fieldSize <= 8 ? 2 : 3);
+  return uniqueParts.join(" · ");
+}
+
 export function analyzeLeg(
   race: AtgRace,
   legIndex: number,
@@ -86,6 +129,11 @@ export function analyzeLeg(
   const rawHorses = field.map((s) => scoreStart(s, race, field, gameType, travsportIndex));
   const totalCombined = rawHorses.reduce((sum, horse) => sum + Math.max(0.01, horse.combinedScore), 0);
   const fallbackMarketPct = rawHorses.length > 0 ? 100 / rawHorses.length : 0;
+  const marketRankByNumber = new Map(
+    [...rawHorses]
+      .sort((a, b) => b.betDistribution - a.betDistribution || b.combinedScore - a.combinedScore)
+      .map((horse, index) => [horse.number, index + 1]),
+  );
   const horses = rawHorses
     .map((horse) => {
       const estimatedWinPct =
@@ -107,6 +155,7 @@ export function analyzeLeg(
         ...horse,
         estimatedWinPct: Math.round(estimatedWinPct * 10) / 10,
         valueEdgePct: Math.round(valueEdgePct * 10) / 10,
+        marketRank: marketRankByNumber.get(horse.number) ?? undefined,
         valueScore:
           marketPct > 0
             ? Math.round(((estimatedWinPct / marketPct) * 1000)) / 1000
@@ -128,13 +177,36 @@ export function analyzeLeg(
 
   const spread = horses.length;
   const favBd = favorite?.betDistribution ?? 0;
-  const modelGap =
-    modelTop && favorite ? modelTop.combinedScore - favorite.combinedScore : 0;
+  const secondModel = horses[1];
+  const topWinPct = modelTop?.estimatedWinPct ?? 0;
+  const secondWinPct = secondModel?.estimatedWinPct ?? 0;
+  const modelGap = Math.max(0, topWinPct - secondWinPct);
+  const valueDepth = horses.filter((horse) => (horse.valueEdgePct ?? 0) >= 3.5).length;
+  const bankabilityScore = clamp01(
+    topWinPct / 100 * 0.58 +
+      modelGap / 100 * 1.75 +
+      (modelTop.number === favorite.number ? 0.08 : 0) -
+      Math.max(0, (favBd - topWinPct) / 100) * 0.22,
+  );
+  const opennessScore = clamp01(
+    Math.max(0, 1 - bankabilityScore) * 0.58 +
+      Math.max(0, 28 - favBd) / 28 * 0.18 +
+      valueDepth / Math.max(1, horses.length) * 0.14 +
+      Math.min(spread, 12) / 12 * 0.1,
+  );
+
+  const enrichedHorses = horses.map((horse, index) => ({
+    ...horse,
+    projectedRank: index + 1,
+    projectedFinishLabel: projectedFinishLabel(index + 1, spread),
+    confidencePct: Math.round(Math.max(horse.estimatedWinPct ?? 0, horse.combinedScore * 100) * 10) / 10,
+    analystComment: buildHorseAnalystComment(horse, index + 1, spread),
+  }));
 
   let recommendation: LegAnalysis["recommendation"] = "gardering";
-  if (favBd >= 42 && spread <= 10 && modelTop.number === favorite.number) {
+  if (bankabilityScore >= 0.72) {
     recommendation = "spik";
-  } else if (favBd < 22 || spread >= 11 || modelGap > 0.12) {
+  } else if (opennessScore >= 0.6) {
     recommendation = "bred";
   }
 
@@ -143,11 +215,14 @@ export function analyzeLeg(
     raceId: race.id,
     track: race.track?.name ?? "",
     raceName: race.name,
-    horses,
+    horses: enrichedHorses,
     favorite,
     skrellSpike,
     recommendation,
-    tipNote: buildTipNote(modelTop),
+    bankabilityScore: Math.round(bankabilityScore * 100) / 100,
+    opennessScore: Math.round(opennessScore * 100) / 100,
+    tipNote:
+      `${buildTipNote(modelTop)} · Bank ${Math.round(bankabilityScore * 100)}% · Öppenhet ${Math.round(opennessScore * 100)}%`,
   };
 }
 

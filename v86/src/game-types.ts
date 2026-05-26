@@ -15,13 +15,13 @@ export function gameTypeLabel(type: string): string {
 }
 
 export function rowPriceKr(type: PoolGameType): number {
-  return type === "dd" ? 1 : 0.5;
+  return type === "dd" ? 10 : 0.5;
 }
 
 export function defaultBudgetKr(type: PoolGameType): number {
-  return type === "dd" ? 50 : 600;
+  return type === "dd" ? 60 : 600;
 }
 
 export function defaultMinPayoutKr(type: PoolGameType): number {
-  return type === "dd" ? 5_000 : 30_000;
+  return type === "dd" ? 1_500 : 30_000;
 }

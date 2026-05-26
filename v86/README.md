@@ -46,4 +46,4 @@ Klicka på en häst i GUI för full checklista per avdelning.
 ## System
 
 - V85: 0,50 kr/rad, standardbudget 600 kr (8 avdelningar)
-- DD: 1 kr/rad, standardbudget 50 kr (2 avdelningar)
+- DD: 10 kr/rad, standardprofil 60 kr och målutdelning 1 500 kr (2 avdelningar)

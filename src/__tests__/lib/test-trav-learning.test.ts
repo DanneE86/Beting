@@ -168,6 +168,95 @@ function buildSnapshot(): FetchSnapshot {
   } as unknown as FetchSnapshot;
 }
 
+function buildDdGame(): AtgGame {
+  return {
+    id: "dd_2025-11-27_18_8",
+    type: "dd",
+    status: "results",
+    pools: {
+      dd: {
+        result: {
+          winners: [{ combination: [6, 5], odds: 539 }],
+        },
+      },
+    },
+    races: [
+      {
+        id: "dd-race-1",
+        number: 1,
+        name: "DD-1",
+        starts: [
+          {
+            id: "dd-start-1",
+            number: 6,
+            postPosition: 6,
+            scratched: false,
+            horse: { id: 6, name: "DD Spik" },
+            result: { finishOrder: 1, finalOdds: 4.8 },
+          },
+        ],
+        pools: {
+          dd: {
+            result: {
+              winners: [6],
+              reserveOrder: [1, 2],
+            },
+          },
+        },
+      },
+      {
+        id: "dd-race-2",
+        number: 2,
+        name: "DD-2",
+        starts: [
+          {
+            id: "dd-start-2",
+            number: 5,
+            postPosition: 5,
+            scratched: false,
+            horse: { id: 5, name: "DD Gardering" },
+            result: { finishOrder: 1, finalOdds: 6.1 },
+          },
+        ],
+        pools: {
+          dd: {
+            result: {
+              winners: [5],
+              reserveOrder: [4, 7],
+            },
+          },
+        },
+      },
+    ],
+  };
+}
+
+function buildDdSnapshot(): FetchSnapshot {
+  return {
+    fetchedAt: "2025-11-27T10:00:00Z",
+    game: {
+      id: "dd_2025-11-27_18_8",
+      type: "dd",
+      status: "open",
+      races: [],
+      pools: {},
+    },
+    system: {
+      rows: 4,
+      costKr: 40,
+      estimatedPayoutNote: "dd-test",
+      selections: [
+        { leg: 1, picks: [1, 6], type: "gardering" },
+        { leg: 2, picks: [4, 5], type: "gardering" },
+      ],
+    },
+    legs: [],
+    meta: {
+      analysisModel: "test",
+    },
+  } as unknown as FetchSnapshot;
+}
+
 describe("trav learning", () => {
   it("extraherar facit och räknar systemträff", () => {
     const resolved = extractTravResult(buildGame());
@@ -175,6 +264,7 @@ describe("trav learning", () => {
 
     expect(resolved.legs[0]?.winners).toEqual([1]);
     expect(resolved.legs[1]?.winners).toEqual([4]);
+    expect(resolved.legs[1]?.finishers[0]?.number).toBe(4);
     expect(hitSummary.correctLegs).toBe(1);
     expect(hitSummary.totalLegs).toBe(2);
     expect(hitSummary.missLegs[0]?.leg).toBe(2);
@@ -191,5 +281,16 @@ describe("trav learning", () => {
     expect(postmortem.lessons.join(" ")).toMatch(/spårhistorik|edge/i);
     expect(postmortem.signalsMissed?.join(" ")).toMatch(/spår|undervärderad|stigande/i);
     expect(postmortem.alternativeActions?.[0]).toMatch(/Gardera avd 2/i);
+  });
+
+  it("räknar DD-utdelning från vinnande kombinationsodds", () => {
+    const resolved = extractTravResult(buildDdGame());
+    const hitSummary = buildSystemHitSummary(buildDdSnapshot().system, resolved);
+
+    expect(hitSummary.correctLegs).toBe(2);
+    expect(hitSummary.fullHit).toBe(true);
+    expect(hitSummary.winningRowCount).toBe(1);
+    expect(hitSummary.payoutAmountKr).toBe(5_390);
+    expect(hitSummary.payoutPerWinningRowKr).toBe(5_390);
   });
 });

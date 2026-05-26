@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { AUTO_MAIN_POOL_BUDGETS_KR, buildSystem, recommendMainPoolPlay } from "../../../v86/src/system-builder";
+import {
+  AUTO_DD_BUDGETS_KR,
+  AUTO_MAIN_POOL_BUDGETS_KR,
+  buildSystem,
+  recommendDdPlay,
+  recommendMainPoolPlay,
+} from "../../../v86/src/system-builder";
 import type { LegAnalysis, ScoredHorse } from "../../../v86/src/types";
 
 function horse(
@@ -176,11 +182,13 @@ describe("buildSystem", () => {
     ];
 
     const system = buildSystem("dd_test", "dd", legs, {
-      budgetKr: 120,
-      targetMinPayoutKr: 5000,
+      budgetKr: 60,
+      targetMinPayoutKr: 2_000,
     });
 
-    expect(system.selections.every((selection) => selection.type === "gardering")).toBe(true);
+    const spikar = system.selections.filter((selection) => selection.type !== "gardering");
+    expect(spikar.length).toBeLessThanOrEqual(1);
+    expect(system.rows).toBeLessThanOrEqual(6);
   });
 
   it("behåller skrällhästen i garderat lopp för bättre skrälltäckning", () => {
@@ -196,11 +204,12 @@ describe("buildSystem", () => {
     ];
 
     const system = buildSystem("dd_skrell_cover", "dd", legs, {
-      budgetKr: 30,
-      targetMinPayoutKr: 5000,
+      budgetKr: 50,
+      targetMinPayoutKr: 2_000,
     });
 
     expect(system.selections.find((selection) => selection.leg === 1)?.picks).toContain(9);
+    expect(system.costKr).toBeLessThanOrEqual(50);
   });
 
   it("lägger extra hästar först i öppet lopp med skrällpotential", () => {
@@ -227,12 +236,14 @@ describe("buildSystem", () => {
     ];
 
     const system = buildSystem("dd_expand_priority", "dd", legs, {
-      budgetKr: 15,
-      targetMinPayoutKr: 5000,
+      budgetKr: 60,
+      targetMinPayoutKr: 2_000,
     });
 
-    expect(system.selections.find((selection) => selection.leg === 1)?.picks).toHaveLength(3);
-    expect(system.selections.find((selection) => selection.leg === 2)?.picks).toHaveLength(5);
+    expect(system.rows).toBeLessThanOrEqual(6);
+    expect(system.selections.find((selection) => selection.leg === 2)?.picks.length ?? 0).toBeGreaterThanOrEqual(
+      system.selections.find((selection) => selection.leg === 1)?.picks.length ?? 0,
+    );
   });
 
   it("håller ett hårt budgettak även när grundsystemet blir för stort", () => {
@@ -272,13 +283,13 @@ describe("buildSystem", () => {
     ];
 
     const system = buildSystem("dd_rebalance", "dd", legs, {
-      budgetKr: 9,
-      targetMinPayoutKr: 5000,
+      budgetKr: 50,
+      targetMinPayoutKr: 2_000,
     });
 
-    expect(system.costKr).toBeLessThanOrEqual(9);
-    expect(system.selections.find((selection) => selection.leg === 1)?.picks).toHaveLength(2);
-    expect(system.selections.find((selection) => selection.leg === 2)?.picks).toHaveLength(4);
+    expect(system.costKr).toBeLessThanOrEqual(50);
+    expect(system.rows).toBeLessThanOrEqual(5);
+    expect(system.selections.every((selection) => selection.picks.length >= 1)).toBe(true);
   });
 
   it("auto-föreslår en huvudspelsbudget inom 600-1000 kr och minst 30k målutdelning", () => {
@@ -317,5 +328,39 @@ describe("buildSystem", () => {
     expect(recommendation).not.toBeNull();
     expect(AUTO_MAIN_POOL_BUDGETS_KR).toContain(recommendation!.budgetKr);
     expect(recommendation!.system.costKr / recommendation!.budgetKr).toBeGreaterThan(0.75);
+  });
+
+  it("auto-föreslår DD-budget inom 50-60 kr med liten systemprofil", () => {
+    const legs: LegAnalysis[] = [
+      leg(
+        1,
+        "spik",
+        [horse(1, 46, 0.82), horse(4, 17, 0.58), horse(7, 9, 0.5, 1.7)],
+        1,
+      ),
+      leg(
+        2,
+        "bred",
+        [
+          horse(1, 28, 0.61),
+          horse(3, 21, 0.6),
+          horse(6, 16, 0.59, 1.85),
+          horse(8, 12, 0.57),
+          horse(10, 8, 0.55, 1.7),
+          horse(12, 5, 0.5, 1.6),
+        ],
+        1,
+        6,
+      ),
+    ];
+
+    const recommendation = recommendDdPlay("dd_auto", "dd", legs, 2_000);
+
+    expect(recommendation).not.toBeNull();
+    expect(AUTO_DD_BUDGETS_KR).toContain(recommendation!.budgetKr);
+    expect(recommendation!.system.costKr).toBeLessThanOrEqual(recommendation!.budgetKr);
+    expect(recommendation!.system.rows).toBeLessThanOrEqual(6);
+    expect(recommendation!.targetMinPayoutKr).toBeGreaterThanOrEqual(1_000);
+    expect(recommendation!.reason).toMatch(/DD|kr/);
   });
 });

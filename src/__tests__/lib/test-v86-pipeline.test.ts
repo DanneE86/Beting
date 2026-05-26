@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildSnapshotRaceData,
   pickDefaultPoolGame,
   sanitizeHistoricalGameForPrematch,
   type GameOption,
@@ -112,6 +113,58 @@ describe("pickDefaultPoolGame", () => {
     expect(sanitized.races[0]?.pools?.V86?.result).toBeUndefined();
     expect(sanitized.races[0]?.starts[0]?.result).toBeUndefined();
     expect(sanitized.races[0]?.starts[0]?.pools?.V86?.result).toBeUndefined();
+  });
+
+  it("bygger full race-data med häst-, kusk- och travsportprofil per start", () => {
+    const game: AtgGame = {
+      id: "V85_2026-05-30",
+      type: "V85",
+      status: "open",
+      races: [
+        {
+          id: "race-1",
+          number: 1,
+          name: "Avd 1",
+          track: { id: 1, name: "Solvalla", condition: "fast" },
+          starts: [
+            {
+              id: "start-1",
+              number: 1,
+              postPosition: 1,
+              scratched: false,
+              horse: {
+                id: 101,
+                name: "Testhästen",
+                trainer: { id: 900, firstName: "Anna", lastName: "Tränare" },
+              },
+              driver: { id: 501, firstName: "Kalle", lastName: "Kusk", homeTrack: { name: "Solvalla" } },
+              pools: { V85: { betDistribution: 3200 } },
+            },
+          ],
+        },
+      ],
+    };
+
+    const raceData = buildSnapshotRaceData(game, {
+      101: {
+        horseId: 101,
+        fetchedAt: "2026-05-26T10:00:00Z",
+        starts: [],
+        recentStarts: [],
+        formTrend: "stigande",
+        daysSinceLastStart: 9,
+        trackWins: 2,
+        trackStarts: 6,
+        driverPairStarts: 5,
+        driverPairWins: 2,
+      },
+    });
+
+    expect(raceData).toHaveLength(1);
+    expect(raceData[0]?.starts).toHaveLength(1);
+    expect(raceData[0]?.starts[0]?.horse?.name).toBe("Testhästen");
+    expect(raceData[0]?.starts[0]?.driverContext?.driverName).toMatch(/Kalle|Kusk/);
+    expect(raceData[0]?.starts[0]?.travsportProfile?.driverPairStarts).toBe(5);
   });
 
 });

@@ -19,6 +19,8 @@ type SpikeSelection = {
 
 type CandidateSystemMetrics = {
   expectedCorrect: number;
+  probabilityExactlySix: number;
+  probabilityExactlySeven: number;
   probabilitySixPlus: number;
   probabilitySevenPlus: number;
   probabilityFull: number;
@@ -26,9 +28,22 @@ type CandidateSystemMetrics = {
   payoutPotential: number;
   budgetUsage: number;
   spikeCount: number;
+  coverageBalance: number;
+};
+
+type DdCandidateMetrics = {
+  hitProbability: number;
+  averageEdge: number;
+  payoutPotential: number;
+  budgetUsage: number;
+  longshotRisk: number;
+  asymmetryPenalty: number;
+  stability: number;
+  rowCount: number;
 };
 
 export const AUTO_MAIN_POOL_BUDGETS_KR = [600, 700, 800, 900, 1000] as const;
+export const AUTO_DD_BUDGETS_KR = [50, 60] as const;
 
 export interface RecommendedMainPoolPlay {
   budgetKr: (typeof AUTO_MAIN_POOL_BUDGETS_KR)[number];
@@ -367,6 +382,422 @@ function sumFromIndex(values: number[], startIndex: number): number {
   return values.slice(Math.max(0, startIndex)).reduce((sum, value) => sum + value, 0);
 }
 
+function horseMarketShare(leg: LegAnalysis, horseNumber: number): number {
+  const horse = leg.horses.find((item) => item.number === horseNumber);
+  if (!horse) return 0;
+  if (horse.betDistribution > 0) return Math.max(0.0005, horse.betDistribution / 100);
+  return estimatedHorseWinShare(leg, horseNumber);
+}
+
+function ddHorseSelectionScore(leg: LegAnalysis, horse: LegAnalysis["horses"][number]): number {
+  const estimatedWinPct = horse.estimatedWinPct ?? estimatedHorseWinShare(leg, horse.number) * 100;
+  const modelRank = modelRankOfHorse(leg, horse.number);
+  let score =
+    estimatedWinPct * 1.8 +
+    (horse.combinedScore ?? 0) * 100 +
+    valueEdgeSignal(horse) * 3.1;
+  if (modelRank === 1) score += 14;
+  else if (modelRank === 2) score += 7;
+  if (horse.number === leg.favorite.number) score += 4;
+  if (horse.number === leg.skrellSpike?.number) score += 5;
+  if (horse.betDistribution > 0 && horse.betDistribution < 4) score -= 18;
+  if (estimatedWinPct < 8) score -= 20;
+  if (horse.formTrend === "nedåtgående") score -= 12;
+  return score;
+}
+
+function ddCoverageOrder(leg: LegAnalysis, forceSkrell = false): number[] {
+  const ordered: number[] = [];
+  const addHorse = (horse?: LegAnalysis["horses"][number] | null) => {
+    if (!horse) return;
+    if (!ordered.includes(horse.number)) ordered.push(horse.number);
+  };
+
+  if (forceSkrell) addHorse(leg.skrellSpike);
+  addHorse(topModelHorse(leg));
+  addHorse(leg.favorite);
+  addHorse(leg.skrellSpike);
+
+  for (const horse of [...leg.horses].sort((a, b) => ddHorseSelectionScore(leg, b) - ddHorseSelectionScore(leg, a))) {
+    addHorse(horse);
+  }
+
+  return ordered;
+}
+
+function buildDdSelection(leg: LegAnalysis, picks: number[]): SystemSelection {
+  if (picks.length === 1) {
+    const horse = leg.horses.find((item) => item.number === picks[0]) ?? leg.favorite;
+    if (leg.skrellSpike?.number === horse.number) {
+      return {
+        leg: leg.leg,
+        picks,
+        type: "skrell-spik",
+        note:
+          horse.betDistribution > 0
+            ? `DD-värdespik: ${horse.name} (${horse.betDistribution.toFixed(1)}%)`
+            : `DD-värdespik: ${horse.name}`,
+      };
+    }
+
+    return {
+      leg: leg.leg,
+      picks,
+      type: "spik",
+      note:
+        horse.betDistribution > 0
+          ? `DD-spik: ${horse.name} (${horse.betDistribution.toFixed(1)}%)`
+          : `DD-spik: ${horse.name}`,
+    };
+  }
+
+  const includesSkrell = leg.skrellSpike ? picks.includes(leg.skrellSpike.number) : false;
+  return {
+    leg: leg.leg,
+    picks,
+    type: "gardering",
+    note:
+      picks.length >= 4
+        ? includesSkrell
+          ? "Bred DD-gardering med värdehäst för stabil träffprofil"
+          : "Bred DD-gardering för stabil träffprofil"
+        : includesSkrell
+          ? "Smal DD-gardering med värdehäst"
+          : "Smal DD-gardering",
+  };
+}
+
+function ddAsymmetryPenalty(
+  selections: SystemSelection[],
+  legHitProbabilities: number[],
+): number {
+  const pickCounts = selections.map((selection) => selection.picks.length);
+  let penalty = Math.max(0, Math.abs(pickCounts[0] - pickCounts[1]) - 2) * 4;
+  for (let index = 0; index < selections.length; index++) {
+    if (pickCounts[index] !== 1) continue;
+    penalty += Math.max(0, 0.42 - (legHitProbabilities[index] ?? 0)) * 60;
+  }
+  return penalty;
+}
+
+function evaluateDdSystem(
+  legs: LegAnalysis[],
+  system: BuiltSystem,
+  options: BuildOptions,
+): DdCandidateMetrics {
+  const selections = system.selections;
+  const legHitProbabilities = selections.map((selection) => {
+    const leg = legs.find((item) => item.leg === selection.leg);
+    return leg ? selectedHitProbability(leg, selection.picks) : 0;
+  });
+  const legMarketShares = selections.map((selection) => {
+    const leg = legs.find((item) => item.leg === selection.leg);
+    return leg ? selectedMarketShare(leg, selection.picks) : 0;
+  });
+  const hitProbability = legHitProbabilities.reduce((productValue, value) => productValue * value, 1);
+
+  const firstSelection = selections[0];
+  const secondSelection = selections[1];
+  const firstLeg = firstSelection ? legs.find((item) => item.leg === firstSelection.leg) ?? null : null;
+  const secondLeg = secondSelection ? legs.find((item) => item.leg === secondSelection.leg) ?? null : null;
+
+  let comboEdgeScore = 0;
+  let comboPayoutScore = 0;
+  let longshotRisk = 0;
+
+  if (firstLeg && secondLeg && firstSelection && secondSelection) {
+    for (const firstPick of firstSelection.picks) {
+      for (const secondPick of secondSelection.picks) {
+        const firstProbability = estimatedHorseWinShare(firstLeg, firstPick);
+        const secondProbability = estimatedHorseWinShare(secondLeg, secondPick);
+        const firstMarketShare = horseMarketShare(firstLeg, firstPick);
+        const secondMarketShare = horseMarketShare(secondLeg, secondPick);
+        const comboProbability = firstProbability * secondProbability;
+        const comboMarketShare = Math.max(0.00025, firstMarketShare * secondMarketShare);
+        const comboEdge = comboProbability / comboMarketShare;
+
+        comboEdgeScore += comboProbability * Math.min(4.5, comboEdge);
+        comboPayoutScore += comboProbability * -Math.log(Math.min(0.99, comboMarketShare));
+
+        if (firstProbability < 0.09) longshotRisk += comboProbability * 0.7;
+        if (secondProbability < 0.09) longshotRisk += comboProbability * 0.7;
+        if (firstMarketShare < 0.05) longshotRisk += comboProbability * 0.35;
+        if (secondMarketShare < 0.05) longshotRisk += comboProbability * 0.35;
+      }
+    }
+  }
+
+  const normalizedComboEdge = hitProbability > 0 ? comboEdgeScore / hitProbability : 0;
+  const normalizedPayoutPotential = hitProbability > 0 ? comboPayoutScore / hitProbability : 0;
+  const averageLegEdge =
+    legHitProbabilities.reduce(
+      (sum, value, index) => sum + (value - (legMarketShares[index] ?? 0)),
+      0,
+    ) / Math.max(1, legHitProbabilities.length);
+  const asymmetryPenalty = ddAsymmetryPenalty(selections, legHitProbabilities);
+  const stability =
+    legHitProbabilities.reduce((sum, value) => sum + value, 0) / Math.max(1, legHitProbabilities.length) -
+    longshotRisk * 0.25 -
+    asymmetryPenalty * 0.01;
+  const payoutTargetFactor = Math.min(2.2, Math.max(0.85, options.targetMinPayoutKr / 2_500));
+
+  return {
+    hitProbability,
+    averageEdge: averageLegEdge + Math.max(0, normalizedComboEdge - 1) * 0.1,
+    payoutPotential: normalizedPayoutPotential * payoutTargetFactor,
+    budgetUsage: system.costKr / Math.max(1, options.budgetKr),
+    longshotRisk,
+    asymmetryPenalty,
+    stability,
+    rowCount: system.rows,
+  };
+}
+
+function scoreDdSystem(metrics: DdCandidateMetrics): number {
+  const budgetBonus = Math.max(0, metrics.budgetUsage - 0.8) * 28;
+  return (
+    metrics.hitProbability * 820 +
+    metrics.averageEdge * 180 +
+    metrics.payoutPotential * 34 +
+    metrics.stability * 260 +
+    budgetBonus -
+    metrics.longshotRisk * 130 -
+    metrics.asymmetryPenalty * 14
+  );
+}
+
+type MainPoolLegOption = {
+  selection: SystemSelection;
+  rowFactor: number;
+  localScore: number;
+};
+
+type MainPoolSearchState = {
+  selections: SystemSelection[];
+  rows: number;
+  localScore: number;
+  spikeCount: number;
+  skrellSpikeCount: number;
+};
+
+function flexibleGuardMaxCount(leg: LegAnalysis): number {
+  const horses = leg.horses.length;
+  const openness = leg.opennessScore ?? 0.5;
+  if (openness >= 0.72) return Math.min(horses, 7);
+  if (openness >= 0.58) return Math.min(horses, 6);
+  if (openness >= 0.42) return Math.min(horses, 5);
+  return Math.min(horses, 4);
+}
+
+function safeMainPoolHorseScore(leg: LegAnalysis, horse: LegAnalysis["horses"][number]): number {
+  const estimatedWinPct = horse.estimatedWinPct ?? estimatedHorseWinShare(leg, horse.number) * 100;
+  const marketShare = horse.betDistribution ?? 0;
+  const edge = valueEdgeSignal(horse);
+  return (
+    estimatedWinPct * 1.15 +
+    marketShare * 0.42 +
+    (horse.combinedScore ?? 0) * 42 +
+    Math.max(0, edge) * 1.4 -
+    Math.max(0, -edge) * 1.1
+  );
+}
+
+function preferredMainPoolSpikeHorse(leg: LegAnalysis) {
+  return (
+    [...leg.horses].sort(
+      (a, b) =>
+        safeMainPoolHorseScore(leg, b) - safeMainPoolHorseScore(leg, a) ||
+        (b.estimatedWinPct ?? 0) - (a.estimatedWinPct ?? 0),
+    )[0] ?? topModelHorse(leg)
+  );
+}
+
+function mainPoolCoverageOrder(leg: LegAnalysis): number[] {
+  return [...leg.horses]
+    .sort((a, b) => {
+      const byCoverage =
+        safeMainPoolHorseScore(leg, b) +
+        horseCoverageScore(leg, b) * 0.35 -
+        (safeMainPoolHorseScore(leg, a) + horseCoverageScore(leg, a) * 0.35);
+      if (byCoverage !== 0) return byCoverage;
+      const byProbability = (b.estimatedWinPct ?? 0) - (a.estimatedWinPct ?? 0);
+      if (byProbability !== 0) return byProbability;
+      return (b.betDistribution ?? 0) - (a.betDistribution ?? 0);
+    })
+    .map((horse) => horse.number);
+}
+
+function selectionNoteForLeg(
+  leg: LegAnalysis,
+  picks: number[],
+  type: SystemSelection["type"],
+): string {
+  if (type === "skrell-spik") {
+    const horse = leg.horses.find((item) => item.number === picks[0]) ?? leg.skrellSpike ?? leg.favorite;
+    return horse.betDistribution > 0
+      ? `Friare värdespik: ${horse.name} (${horse.betDistribution.toFixed(1)}%)`
+      : `Friare värdespik: ${horse.name}`;
+  }
+  if (type === "spik") {
+    const horse = leg.horses.find((item) => item.number === picks[0]) ?? topModelHorse(leg);
+    return horse.betDistribution > 0
+      ? `Friare modellspik: ${horse.name} (${horse.betDistribution.toFixed(1)}%)`
+      : `Friare modellspik: ${horse.name}`;
+  }
+  const topNames = picks
+    .map((pick) => leg.horses.find((horse) => horse.number === pick)?.name)
+    .filter(Boolean)
+    .slice(0, 2);
+  return topNames.length > 0
+    ? `Friare gardering: ${topNames.join(" + ")}${picks.length > 2 ? " och fler" : ""}`
+    : `Friare gardering med ${picks.length} hästar`;
+}
+
+function buildMainPoolLegOptions(
+  leg: LegAnalysis,
+  forceSkrellLeg = false,
+): MainPoolLegOption[] {
+  const coverage = mainPoolCoverageOrder(leg);
+  const options: MainPoolLegOption[] = [];
+  const seen = new Set<string>();
+  const openness = leg.opennessScore ?? 0.5;
+  const bankability = leg.bankabilityScore ?? 0.5;
+
+  const pushOption = (picks: number[], type: SystemSelection["type"]) => {
+    const normalizedPicks = picks.filter((pick, index) => picks.indexOf(pick) === index);
+    if (normalizedPicks.length === 0) return;
+    const key = `${type}:${normalizedPicks.join(",")}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    const hitProbability = selectedHitProbability(leg, normalizedPicks);
+    const marketShare = selectedMarketShare(leg, normalizedPicks);
+    const antiCrowd = -Math.log(Math.min(0.985, Math.max(0.03, marketShare)));
+    const edge = hitProbability - marketShare;
+    const spikeHorse =
+      normalizedPicks.length === 1
+        ? leg.horses.find((horse) => horse.number === normalizedPicks[0]) ?? null
+        : null;
+    const spikeWinPct = spikeHorse?.estimatedWinPct ?? 0;
+    const spikeBd = spikeHorse?.betDistribution ?? 0;
+    const coveragePenalty =
+      normalizedPicks.length > 1
+        ? (normalizedPicks.length - 2) * (6 + Math.max(0, 0.55 - openness) * 10)
+        : 0;
+    const spikeBonus =
+      type === "spik"
+        ? bankability * 18 + hitProbability * 12
+        : type === "skrell-spik"
+          ? Math.max(0, edge) * 18 +
+            Math.max(0, spikeWinPct - 12) * 0.8 -
+            Math.max(0, 14 - spikeWinPct) * 4 -
+            Math.max(0, 5 - spikeBd) * 4
+          : 0;
+    const spikeRiskPenalty =
+      spikeHorse == null
+        ? 0
+        : type === "spik"
+          ? Math.max(0, 22 - spikeWinPct) * 6 + (spikeBd > 0 ? Math.max(0, 15 - spikeBd) * 4 : 0)
+          : Math.max(0, 16 - spikeWinPct) * 4 + (spikeBd > 0 ? Math.max(0, 8 - spikeBd) * 3.5 : 0);
+    const structuralSpikePenalty =
+      spikeHorse == null
+        ? 0
+        : type === "spik"
+          ? Math.max(0, 0.72 - bankability) * 90
+          : Math.max(0, 0.66 - bankability) * 110;
+
+    options.push({
+      selection: {
+        leg: leg.leg,
+        picks: normalizedPicks,
+        type,
+        note: selectionNoteForLeg(leg, normalizedPicks, type),
+      },
+      rowFactor: normalizedPicks.length,
+      localScore:
+        hitProbability * 175 +
+        edge * 54 +
+        antiCrowd * (type === "gardering" ? 7 + openness * 3 : 4) +
+        spikeBonus -
+        coveragePenalty -
+        spikeRiskPenalty -
+        structuralSpikePenalty,
+    });
+  };
+
+  const preferredSpike = preferredMainPoolSpikeHorse(leg);
+  const topModel = topModelHorse(leg);
+  pushOption([preferredSpike.number], "spik");
+  if (topModel.number !== preferredSpike.number) {
+    pushOption([topModel.number], "spik");
+  }
+
+  const valueHorse = pickValueSpikeHorse(leg) ?? leg.skrellSpike;
+  if (forceSkrellLeg) {
+    const forcedHorse =
+      valueHorse ??
+      leg.skrellSpike ??
+      leg.horses.find((horse) => horse.number !== leg.favorite.number) ??
+      topModel;
+    return [
+      {
+        selection: {
+          leg: leg.leg,
+          picks: [forcedHorse.number],
+          type: "skrell-spik",
+          note: selectionNoteForLeg(leg, [forcedHorse.number], "skrell-spik"),
+        },
+        rowFactor: 1,
+        localScore: 70 + Math.max(0, valueEdgeSignal(forcedHorse)) * 4,
+      },
+    ];
+  }
+  if (valueHorse && valueHorse.number !== topModel.number) {
+    pushOption([valueHorse.number], "skrell-spik");
+  }
+
+  const maxGuardCount = flexibleGuardMaxCount(leg);
+  for (let count = 2; count <= maxGuardCount; count++) {
+    pushOption(coverage.slice(0, count), "gardering");
+  }
+
+  const ordered = options.sort(
+    (a, b) =>
+      b.localScore - a.localScore ||
+      a.rowFactor - b.rowFactor ||
+      a.selection.leg - b.selection.leg,
+  );
+  const spikeOptions = ordered.filter((option) => option.selection.type !== "gardering");
+  const guardOptions = ordered.filter((option) => option.selection.type === "gardering");
+  return [...spikeOptions, ...guardOptions.slice(0, Math.max(2, 6 - spikeOptions.length))];
+}
+
+function buildSystemFromSelections(
+  gameId: string,
+  gameType: PoolGameType,
+  options: BuildOptions,
+  selections: SystemSelection[],
+): BuiltSystem {
+  const unitKr = rowPriceKr(gameType);
+  const rows = product(selections.map((selection) => selection.picks.length));
+  const costKr = rows * unitKr;
+  const gameLabel = gameType === "dd" ? "Dagens Dubbel" : gameType;
+  return {
+    gameId,
+    gameType,
+    budgetKr: options.budgetKr,
+    rows,
+    costKr,
+    targetMinPayoutKr: options.targetMinPayoutKr,
+    estimatedPayoutNote:
+      `Mål: utdelning ≥ ${options.targetMinPayoutKr.toLocaleString("sv-SE")} kr vid fullträff (${gameLabel}). ` +
+      `ATG garanterar inte min utdelning – se atg.se. ` +
+      `System: ${rows} rader × ${unitKr} kr = ${costKr.toFixed(2)} kr.`,
+    selections,
+    skrellSpikeLeg: selections.find((selection) => selection.type === "skrell-spik")?.leg ?? null,
+  };
+}
+
 function evaluateMainPoolSystem(
   legs: LegAnalysis[],
   system: BuiltSystem,
@@ -388,6 +819,11 @@ function evaluateMainPoolSystem(
 
   const hitDistribution = poissonBinomialDistribution(probabilities);
   const totalLegs = probabilities.length;
+  const averageProbability =
+    probabilities.reduce((sum, value) => sum + value, 0) / Math.max(1, probabilities.length);
+  const probabilityVariance =
+    probabilities.reduce((sum, value) => sum + Math.pow(value - averageProbability, 2), 0) /
+    Math.max(1, probabilities.length);
   const payoutTargetFactor = Math.min(1.8, Math.max(0.9, options.targetMinPayoutKr / 50_000));
   const antiCrowdScore =
     marketShares.reduce((sum, share) => sum + -Math.log(Math.min(0.985, Math.max(0.03, share))), 0) /
@@ -402,6 +838,8 @@ function evaluateMainPoolSystem(
 
   return {
     expectedCorrect: probabilities.reduce((sum, value) => sum + value, 0),
+    probabilityExactlySix: hitDistribution[Math.max(0, totalLegs - 2)] ?? 0,
+    probabilityExactlySeven: hitDistribution[Math.max(0, totalLegs - 1)] ?? 0,
     probabilitySixPlus: sumFromIndex(hitDistribution, Math.max(0, totalLegs - 2)),
     probabilitySevenPlus: sumFromIndex(hitDistribution, Math.max(0, totalLegs - 1)),
     probabilityFull: hitDistribution[totalLegs] ?? 0,
@@ -409,23 +847,66 @@ function evaluateMainPoolSystem(
     payoutPotential: antiCrowdScore * 0.65 + spikeMarketPressure * (1.8 * payoutTargetFactor),
     budgetUsage: system.costKr / Math.max(1, options.budgetKr),
     spikeCount: spikeSelections.length,
+    coverageBalance: Math.max(0, 1 - Math.sqrt(probabilityVariance) / 0.24),
   };
 }
 
 function scoreMainPoolSystem(metrics: CandidateSystemMetrics): number {
-  const budgetBonus = Math.max(0, metrics.budgetUsage - 0.82) * 24;
-  const spikePenalty = metrics.spikeCount >= 4 ? (metrics.spikeCount - 3) * 18 : 0;
-  const noSpikePenalty = metrics.spikeCount === 0 ? 8 : 0;
+  const budgetBonus = Math.max(0, metrics.budgetUsage - 0.82) * 42;
+  const spikePenalty = metrics.spikeCount >= 6 ? (metrics.spikeCount - 5) * 10 : 0;
+  const noSpikePenalty = metrics.spikeCount === 0 ? 4 : 0;
   return (
-    metrics.expectedCorrect * 16 +
-    metrics.probabilitySixPlus * 230 +
-    metrics.probabilitySevenPlus * 420 +
-    metrics.probabilityFull * 900 +
-    metrics.averageEdge * 160 +
-    metrics.payoutPotential * 62 +
+    metrics.expectedCorrect * 10 +
+    metrics.probabilitySixPlus * 340 +
+    metrics.probabilityExactlySix * 180 +
+    metrics.probabilitySevenPlus * 250 +
+    metrics.probabilityExactlySeven * 140 +
+    metrics.probabilityFull * 420 +
+    metrics.averageEdge * 150 +
+    metrics.payoutPotential * 58 +
+    metrics.coverageBalance * 120 +
     budgetBonus -
     spikePenalty -
     noSpikePenalty
+  );
+}
+
+function mainPoolCandidateScore(
+  legs: LegAnalysis[],
+  candidate: BuiltSystem,
+  options: BuildOptions,
+  stateLocalScore = 0,
+): number {
+  const metrics = evaluateMainPoolSystem(legs, candidate, options);
+  const underusePenalty = Math.max(0, 0.86 - metrics.budgetUsage) * 175;
+  const spikeOverloadPenalty = Math.max(0, metrics.spikeCount - 5) * 8;
+  const riskySinglePickPenalty = candidate.selections.reduce((sum, selection) => {
+    if (selection.picks.length !== 1) return sum;
+    const leg = legs.find((item) => item.leg === selection.leg);
+    const horse = leg?.horses.find((item) => item.number === selection.picks[0]);
+    if (!horse) return sum;
+    const winPct = horse.estimatedWinPct ?? 0;
+    const market = horse.betDistribution ?? 0;
+    const bankability = leg?.bankabilityScore ?? 0.5;
+    return (
+      sum +
+      Math.max(0, 20 - winPct) * 8 +
+      (market > 0 ? Math.max(0, 12 - market) * 5 : 0) +
+      Math.max(0, 0.7 - bankability) * 60
+    );
+  }, 0);
+  const skrellSpikePenalty =
+    Math.max(
+      0,
+      candidate.selections.filter((selection) => selection.type === "skrell-spik").length - 1,
+    ) * 36;
+  return (
+    scoreMainPoolSystem(metrics) +
+    stateLocalScore -
+    underusePenalty -
+    spikeOverloadPenalty -
+    skrellSpikePenalty -
+    riskySinglePickPenalty
   );
 }
 
@@ -542,6 +1023,133 @@ export function recommendMainPoolPlay(
     ),
     system: best.system,
   };
+}
+
+function buildDdRecommendationReason(
+  budgetKr: (typeof AUTO_DD_BUDGETS_KR)[number],
+  targetMinPayoutKr: number,
+  system: BuiltSystem,
+  metrics: DdCandidateMetrics,
+): string {
+  const hitRateText = `${Math.round(metrics.hitProbability * 100)}% modellträff på kupongen`;
+  const structureText = system.selections.some((selection) => selection.type !== "gardering")
+    ? "en tydlig DD-spikprofil"
+    : "en helt garderad DD-profil";
+  return `${budgetKr} kr gav bäst balans mellan ${structureText}, ${hitRateText} och en rimlig chans att nå minst ${targetMinPayoutKr.toLocaleString("sv-SE")} kr vid träff.`;
+}
+
+export function recommendDdPlay(
+  gameId: string,
+  gameType: PoolGameType,
+  legs: LegAnalysis[],
+  minTargetMinPayoutKr = 1_500,
+): RecommendedMainPoolPlay | null {
+  if (gameType !== "dd") return null;
+
+  const targetMinPayoutKr = Math.max(1_000, minTargetMinPayoutKr);
+  let best:
+    | {
+        budgetKr: (typeof AUTO_DD_BUDGETS_KR)[number];
+        system: BuiltSystem;
+        metrics: DdCandidateMetrics;
+        score: number;
+      }
+    | null = null;
+
+  for (const budgetKr of AUTO_DD_BUDGETS_KR) {
+    const system = buildDdSystem(gameId, gameType, legs, {
+      budgetKr,
+      targetMinPayoutKr,
+    });
+    const metrics = evaluateDdSystem(legs, system, {
+      budgetKr,
+      targetMinPayoutKr,
+    });
+    const score = scoreDdSystem(metrics) - (budgetKr === 60 ? 4 : 0);
+    if (!best || score > best.score) {
+      best = { budgetKr, system, metrics, score };
+    }
+  }
+
+  if (!best) return null;
+
+  return {
+    budgetKr: best.budgetKr,
+    targetMinPayoutKr,
+    opennessScore: Math.round(best.metrics.hitProbability * 100) / 100,
+    reason: buildDdRecommendationReason(
+      best.budgetKr,
+      targetMinPayoutKr,
+      best.system,
+      best.metrics,
+    ),
+    system: best.system,
+  };
+}
+
+function buildDdSystem(
+  gameId: string,
+  gameType: PoolGameType,
+  legs: LegAnalysis[],
+  options: BuildOptions,
+): BuiltSystem {
+  const unitKr = rowPriceKr(gameType);
+  const maxRows = Math.max(1, Math.floor(options.budgetKr / unitKr));
+  const ddLegs = legs.slice(0, 2);
+
+  if (ddLegs.length < 2) {
+    return buildCandidateSystem(gameId, gameType, legs, options);
+  }
+
+  const coverageOrders = ddLegs.map((leg) =>
+    ddCoverageOrder(leg, options.forceSkrellLeg != null && options.forceSkrellLeg === leg.leg),
+  );
+  let best:
+    | {
+        system: BuiltSystem;
+        score: number;
+      }
+    | null = null;
+
+  for (let firstCount = 1; firstCount <= Math.min(maxRows, coverageOrders[0].length); firstCount++) {
+    for (
+      let secondCount = 1;
+      secondCount <= Math.min(Math.max(1, Math.floor(maxRows / firstCount)), coverageOrders[1].length);
+      secondCount++
+    ) {
+      const rows = firstCount * secondCount;
+      if (rows > maxRows) continue;
+
+      const selections = [
+        buildDdSelection(ddLegs[0], coverageOrders[0].slice(0, firstCount)),
+        buildDdSelection(ddLegs[1], coverageOrders[1].slice(0, secondCount)),
+      ];
+      const costKr = rows * unitKr;
+      const system: BuiltSystem = {
+        gameId,
+        gameType,
+        budgetKr: options.budgetKr,
+        rows,
+        costKr,
+        targetMinPayoutKr: options.targetMinPayoutKr,
+        estimatedPayoutNote:
+          `Mål: utdelning ≥ ${options.targetMinPayoutKr.toLocaleString("sv-SE")} kr vid DD-träff. ` +
+          `System: ${rows} rader × ${unitKr} kr = ${costKr.toFixed(2)} kr.`,
+        selections,
+        skrellSpikeLeg:
+          selections.find((selection) => selection.type === "skrell-spik")?.leg ?? null,
+      };
+      const metrics = evaluateDdSystem(ddLegs, system, options);
+      const rowsPenalty = rows < Math.max(1, maxRows - 1) ? (Math.max(1, maxRows - 1) - rows) * 18 : 0;
+      const score = scoreDdSystem(metrics) - rowsPenalty;
+
+      if (!best || score > best.score) {
+        best = { system, score };
+      }
+    }
+  }
+
+  return best?.system ?? buildCandidateSystem(gameId, gameType, legs, options);
 }
 
 function buildCandidateSystem(
@@ -702,47 +1310,76 @@ function pickBestMainPoolSystem(
   legs: LegAnalysis[],
   options: BuildOptions,
 ): BuiltSystem {
-  const spikeOptionsByLeg = candidateSpikeOptions(legs, options.forceSkrellLeg ?? null);
-  const chosen = new Map<number, SpikeSelection>();
-  let bestSystem: BuiltSystem | null = null;
-  let bestScore = Number.NEGATIVE_INFINITY;
+  const unitKr = rowPriceKr(gameType);
+  const maxRows = Math.max(1, Math.floor(options.budgetKr / unitKr));
+  const legOptions = legs.map((leg) =>
+    buildMainPoolLegOptions(leg, options.forceSkrellLeg != null && options.forceSkrellLeg === leg.leg),
+  );
+  const beamWidth = 180;
+  let states: MainPoolSearchState[] = [
+    {
+      selections: [],
+      rows: 1,
+      localScore: 0,
+      spikeCount: 0,
+      skrellSpikeCount: 0,
+    },
+  ];
 
-  function visit(legIndex: number, spikeCount: number) {
-    if (legIndex >= legs.length) {
-      if (options.forceSkrellLeg != null) {
-        const forcedChoice = chosen.get(options.forceSkrellLeg);
-        if (!forcedChoice || forcedChoice.type !== "skrell-spik") return;
+  for (let legIndex = 0; legIndex < legs.length; legIndex++) {
+    const nextStates: MainPoolSearchState[] = [];
+    for (const state of states) {
+      for (const option of legOptions[legIndex] ?? []) {
+        const nextRows = state.rows * option.rowFactor;
+        if (nextRows > maxRows) continue;
+        const nextSelections = [...state.selections, option.selection];
+        nextStates.push({
+          selections: nextSelections,
+          rows: nextRows,
+          localScore:
+            state.localScore +
+            option.localScore +
+            Math.min(10, (nextRows / Math.max(1, maxRows)) * 8) -
+            Math.max(0, state.spikeCount + (option.selection.type !== "gardering" ? 1 : 0) - 4) * 6 -
+            Math.max(0, state.skrellSpikeCount + (option.selection.type === "skrell-spik" ? 1 : 0) - 1) * 24,
+          spikeCount: state.spikeCount + (option.selection.type !== "gardering" ? 1 : 0),
+          skrellSpikeCount: state.skrellSpikeCount + (option.selection.type === "skrell-spik" ? 1 : 0),
+        });
       }
-      const forcedSpikes = new Map(chosen);
-      const candidate = buildCandidateSystem(gameId, gameType, legs, options, forcedSpikes);
-      const metrics = evaluateMainPoolSystem(legs, candidate, options);
-      const score = scoreMainPoolSystem(metrics);
-      if (score > bestScore) {
-        bestScore = score;
-        bestSystem = candidate;
-      }
-      return;
     }
 
-    const leg = legs[legIndex];
-    const optionsForLeg = spikeOptionsByLeg.get(leg.leg) ?? [];
-
-    if (options.forceSkrellLeg !== leg.leg || optionsForLeg.some((choice) => choice.type === "skrell-spik")) {
-      chosen.delete(leg.leg);
-      visit(legIndex + 1, spikeCount);
-    }
-
-    if (spikeCount >= 3) return;
-
-    for (const choice of optionsForLeg) {
-      chosen.set(leg.leg, choice);
-      visit(legIndex + 1, spikeCount + 1);
-    }
-    chosen.delete(leg.leg);
+    states = nextStates
+      .sort((a, b) => b.localScore - a.localScore || b.rows - a.rows)
+      .slice(0, beamWidth);
+    if (states.length === 0) break;
   }
 
-  visit(0, 0);
-  return bestSystem ?? buildCandidateSystem(gameId, gameType, legs, options);
+  let bestSystem: BuiltSystem | null = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  const completedStates = states.filter((state) => state.selections.length === legs.length);
+
+  for (const state of completedStates) {
+    const candidate = buildSystemFromSelections(gameId, gameType, options, state.selections);
+    const score = mainPoolCandidateScore(legs, candidate, options, state.localScore);
+    if (Number.isFinite(score) && score > bestScore) {
+      bestScore = score;
+      bestSystem = candidate;
+    }
+  }
+
+  const legacySystem = buildCandidateSystem(gameId, gameType, legs, options);
+  const legacyScore = mainPoolCandidateScore(legs, legacySystem, options);
+  if (Number.isFinite(legacyScore) && legacyScore > bestScore) {
+    bestScore = legacyScore;
+    bestSystem = legacySystem;
+  }
+
+  if (!bestSystem && completedStates.length > 0) {
+    const fallbackState = [...completedStates].sort((a, b) => b.localScore - a.localScore || b.rows - a.rows)[0]!;
+    return buildSystemFromSelections(gameId, gameType, options, fallbackState.selections);
+  }
+
+  return bestSystem ?? legacySystem;
 }
 
 function projectedRowsForChange(currentRows: number, currentCount: number, nextCount: number): number {
@@ -827,5 +1464,5 @@ export function buildSystem(
   if (gameType !== "dd") {
     return pickBestMainPoolSystem(gameId, gameType, legs, options);
   }
-  return buildCandidateSystem(gameId, gameType, legs, options);
+  return buildDdSystem(gameId, gameType, legs, options);
 }

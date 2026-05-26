@@ -70,13 +70,15 @@ function median(values: number[]): number {
 
 function scoreAggregate(result: AggregateResult): number {
   return (
-    result.roi * 100 +
-    result.hitRate * 24 +
-    result.profitableMonthShare * 28 +
-    result.bigHits50k * 1.5 +
-    result.bigHits100k * 3 +
-    Math.min(8, result.maxPayoutKr / 25_000) +
-    Math.max(-6, Math.min(6, result.averageNetKr / 100))
+    result.hitRate * 70 +
+    result.profitableMonthShare * 80 +
+    result.fullHitRate * 28 +
+    result.roi * 24 +
+    result.medianNetKr / 180 +
+    result.averageNetKr / 120 +
+    result.bigHits50k * 0.75 +
+    result.bigHits100k * 1.5 +
+    Math.min(10, result.maxPayoutKr / 40_000)
   );
 }
 

@@ -1,3 +1,5 @@
+import type { TravsportHorseProfile } from "./travsport/types";
+
 /** V85, V86 och Dagens Dubbel (ATG-nyckel `dd`). */
 export type PoolGameType = "V85" | "V86" | "dd";
 
@@ -198,6 +200,11 @@ export interface ScoredHorse {
   combinedScore: number;
   estimatedWinPct?: number;
   valueEdgePct?: number;
+  marketRank?: number;
+  projectedRank?: number;
+  projectedFinishLabel?: string;
+  confidencePct?: number;
+  analystComment?: string;
   formTrend: "stigande" | "toppad" | "nedåtgående" | "okänd";
   highlights: string[];
   horseChecklist: ChecklistItemView[];
@@ -214,6 +221,8 @@ export interface LegAnalysis {
   favorite: ScoredHorse;
   skrellSpike: ScoredHorse | null;
   recommendation: "spik" | "gardering" | "bred";
+  bankabilityScore?: number;
+  opennessScore?: number;
   tipNote?: string;
 }
 
@@ -245,10 +254,48 @@ export interface AndelsShareTip {
   url?: string;
 }
 
+export interface SnapshotRaceStartData {
+  startId: string;
+  number: number;
+  postPosition: number;
+  scratched: boolean;
+  distance?: number;
+  horse?: AtgStart["horse"];
+  driver?: AtgStart["driver"];
+  pools?: AtgStart["pools"];
+  result?: AtgStart["result"];
+  travsportProfile?: TravsportHorseProfile | null;
+  driverContext?: {
+    driverId?: number | null;
+    driverName: string;
+    homeTrack?: string | null;
+    pairedHorseStarts: number;
+    pairedHorseWins: number;
+  };
+}
+
+export interface SnapshotRaceData {
+  leg: number;
+  raceId: string;
+  raceNumber: number;
+  raceName?: string;
+  status?: string;
+  date?: string;
+  startTime?: string;
+  scheduledStartTime?: string;
+  track?: AtgRace["track"];
+  distance?: number;
+  startMethod?: string;
+  result?: AtgRace["result"];
+  pools?: AtgRace["pools"];
+  starts: SnapshotRaceStartData[];
+}
+
 export interface FetchSnapshot {
   fetchedAt: string;
   game: AtgGame;
   legs: LegAnalysis[];
+  raceData?: SnapshotRaceData[];
   system: BuiltSystem;
   andelsspel?: AndelsShareTip[];
   travsportNotes?: string[];
@@ -260,7 +307,12 @@ export interface FetchSnapshot {
     analysisModel?: string;
     travsportHorses?: number;
     predictionId?: string | null;
+    analysisVersion?: number;
+    analysisSavedAt?: string | null;
     learningPromptText?: string | null;
+    fullRaceDataStored?: boolean;
+    fullRaceDataRaces?: number;
+    fullRaceDataStarts?: number;
     recommendedPlay?: {
       mode: "auto-budget";
       budgetKr: number;

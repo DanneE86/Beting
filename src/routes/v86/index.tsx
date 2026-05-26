@@ -28,6 +28,7 @@ import {
   Brain,
 } from "lucide-react";
 import { toast } from "sonner";
+import { rowPriceKr } from "../../../v86/src/game-types";
 
 export const Route = createFileRoute("/v86/")({
   component: V86Dashboard,
@@ -42,10 +43,18 @@ function daysAgoIso(days: number) {
 }
 
 const DEFAULT_TRAV_BUDGET_KR = 600;
-const DEFAULT_DD_BUDGET_KR = 50;
+const DEFAULT_DD_BUDGET_KR = 60;
 const DEFAULT_TRAV_MIN_PAYOUT_KR = 30_000;
-const DEFAULT_DD_MIN_PAYOUT_KR = 5_000;
+const DEFAULT_DD_MIN_PAYOUT_KR = 1_500;
 const DEFAULT_BACKTEST_GAMES = 10;
+
+function formatRowPrice(type: FetchSnapshot["game"]["type"] | GameOption["type"]) {
+  const value = rowPriceKr(type);
+  return value.toLocaleString("sv-SE", {
+    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: value % 1 === 0 ? 0 : 2,
+  });
+}
 
 function formatMarks(snapshot: FetchSnapshot): string {
   return snapshot.system.selections
@@ -120,6 +129,98 @@ function payoutRowsOf(payouts: unknown) {
     }));
 }
 
+function analysisLegsOf(legs: unknown) {
+  return Array.isArray(legs)
+    ? (legs as Array<{
+        leg?: number;
+        raceName?: string;
+        horses?: Array<{
+          number?: number;
+          name?: string;
+          projectedRank?: number;
+          projectedFinishLabel?: string;
+          estimatedWinPct?: number;
+          betDistribution?: number;
+          valueEdgePct?: number;
+          analystComment?: string;
+        }>;
+      }>)
+    : [];
+}
+
+function HorseAnalysisTables({
+  legs,
+  compact = false,
+}: {
+  legs: ReturnType<typeof analysisLegsOf>;
+  compact?: boolean;
+}) {
+  if (!legs.length) return null;
+
+  return (
+    <div className={`space-y-3 ${compact ? "" : "mt-4"}`}>
+      {legs.map((leg) => {
+        const horses = Array.isArray(leg.horses) ? [...leg.horses] : [];
+        if (horses.length === 0) return null;
+        return (
+          <div
+            key={`horse-analysis-${compact ? "compact" : "full"}-${leg.leg ?? "x"}`}
+            className="rounded border border-[#1e3d2a] bg-[#0c1410] p-3"
+          >
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[#5ec98a]">
+              Hästanalys avd {leg.leg}
+              {leg.raceName ? ` · ${leg.raceName}` : ""}
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-xs">
+                <thead className="text-[#7fa892]">
+                  <tr className="border-b border-[#1e3d2a]">
+                    <th className="px-2 py-1">Rank</th>
+                    <th className="px-2 py-1">Häst</th>
+                    <th className="px-2 py-1">Förväntad slutbild</th>
+                    <th className="px-2 py-1">Vinst%</th>
+                    <th className="px-2 py-1">Spel%</th>
+                    <th className="px-2 py-1">Edge</th>
+                    <th className="px-2 py-1">Kort analys</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {horses.map((horse, index) => (
+                    <tr
+                      key={`${leg.leg}-${horse.number ?? index}-${compact ? "compact" : "full"}`}
+                      className="border-b border-[#13261c] align-top text-[#e8f0ea] last:border-b-0"
+                    >
+                      <td className="px-2 py-1">{horse.projectedRank ?? index + 1}</td>
+                      <td className="px-2 py-1">
+                        <span className="font-mono text-[#5ec98a]">{horse.number}.</span> {horse.name}
+                      </td>
+                      <td className="px-2 py-1">{horse.projectedFinishLabel ?? "—"}</td>
+                      <td className="px-2 py-1">
+                        {horse.estimatedWinPct != null ? `${horse.estimatedWinPct.toFixed(1)}%` : "—"}
+                      </td>
+                      <td className="px-2 py-1">
+                        {horse.betDistribution != null ? `${horse.betDistribution.toFixed(1)}%` : "—"}
+                      </td>
+                      <td className="px-2 py-1">
+                        {horse.valueEdgePct != null
+                          ? `${horse.valueEdgePct >= 0 ? "+" : ""}${horse.valueEdgePct.toFixed(1)}%`
+                          : "—"}
+                      </td>
+                      <td className="px-2 py-1 text-[#b8f0d0]">
+                        {horse.analystComment ?? "Ingen kommentar"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function V86Dashboard() {
   const queryClient = useQueryClient();
   const [date, setDate] = useState(todayIso);
@@ -130,7 +231,7 @@ function V86Dashboard() {
   const [copied, setCopied] = useState(false);
   const [expandedHorse, setExpandedHorse] = useState<string | null>(null);
   const [showAllLegs, setShowAllLegs] = useState<Record<number, boolean>>({});
-  const [backtestType, setBacktestType] = useState<"V86" | "V85">("V86");
+  const [backtestType, setBacktestType] = useState<"V85" | "dd">("dd");
   const [backtestFromDate, setBacktestFromDate] = useState(daysAgoIso(90));
   const [backtestToDate, setBacktestToDate] = useState(todayIso());
   const [backtestMaxGames, setBacktestMaxGames] = useState(DEFAULT_BACKTEST_GAMES);
@@ -142,35 +243,37 @@ function V86Dashboard() {
   });
 
   const games = gamesQ.data?.games ?? [];
-  const selectedGame = games.find((g) => g.id === gameId);
-  const isMainPoolGame = selectedGame?.type === "V85" || selectedGame?.type === "V86";
-  const historyFilterType =
-    isMainPoolGame ? selectedGame.type : "all";
+  const visibleGames = useMemo(() => games.filter((g) => g.type !== "V86"), [games]);
+  const selectedGame = visibleGames.find((g) => g.id === gameId);
+  const isV85Game = selectedGame?.type === "V85";
+  const isDdGame = selectedGame?.type === "dd";
+  const supportsAutoBudget = isV85Game || isDdGame;
+  const historyFilterType = isV85Game ? selectedGame.type : "all";
 
   useEffect(() => {
-    if (!games.length) return;
+    if (!visibleGames.length) return;
     const preferred =
-      pickDefaultPoolGame(games) ??
-      games.find((g) => g.type === "dd") ??
-      games[0];
-    if (preferred && (!gameId || !games.some((g) => g.id === gameId))) {
+      visibleGames.find((g) => g.type === "dd") ??
+      pickDefaultPoolGame(visibleGames) ??
+      visibleGames[0];
+    if (preferred && (!gameId || !visibleGames.some((g) => g.id === gameId))) {
       setGameId(preferred.id);
       if (preferred.type === "dd") {
         setBudgetKr(DEFAULT_DD_BUDGET_KR);
         setMinPayout(DEFAULT_DD_MIN_PAYOUT_KR);
-      } else if (preferred.type === "V85" || preferred.type === "V86") {
+      } else if (preferred.type === "V85") {
         setBudgetKr(DEFAULT_TRAV_BUDGET_KR);
         setMinPayout(DEFAULT_TRAV_MIN_PAYOUT_KR);
       }
     }
-  }, [games, gameId]);
+  }, [visibleGames, gameId]);
 
   useEffect(() => {
     if (!selectedGame) return;
     if (selectedGame.type === "dd") {
       setBudgetKr((b) => (b === DEFAULT_TRAV_BUDGET_KR ? DEFAULT_DD_BUDGET_KR : b));
       setMinPayout((m) => (m === DEFAULT_TRAV_MIN_PAYOUT_KR ? DEFAULT_DD_MIN_PAYOUT_KR : m));
-    } else if (selectedGame.type === "V85" || selectedGame.type === "V86") {
+    } else if (selectedGame.type === "V85") {
       setBudgetKr((b) => (b === DEFAULT_DD_BUDGET_KR ? DEFAULT_TRAV_BUDGET_KR : b));
       setMinPayout((m) => (m === DEFAULT_DD_MIN_PAYOUT_KR ? DEFAULT_TRAV_MIN_PAYOUT_KR : m));
     }
@@ -182,9 +285,9 @@ function V86Dashboard() {
         data: {
           date,
           gameId: gameId || undefined,
-          budgetKr: autoBudget && isMainPoolGame ? undefined : budgetKr,
-          targetMinPayoutKr: autoBudget && isMainPoolGame ? 30_000 : Math.max(30_000, minPayout),
-          autoBudget: autoBudget && isMainPoolGame,
+          budgetKr: autoBudget && supportsAutoBudget ? undefined : budgetKr,
+          targetMinPayoutKr: autoBudget && supportsAutoBudget ? undefined : minPayout,
+          autoBudget: autoBudget && supportsAutoBudget,
         },
       }),
     onError: (e: Error) => toast.error(e.message),
@@ -227,7 +330,7 @@ function V86Dashboard() {
           toDate: backtestToDate,
           maxGames: backtestMaxGames,
           budgetKr: backtestAutoBudget ? undefined : budgetKr,
-          targetMinPayoutKr: backtestAutoBudget ? 30_000 : Math.max(30_000, minPayout),
+          targetMinPayoutKr: backtestAutoBudget ? undefined : minPayout,
           autoBudget: backtestAutoBudget,
         },
       }),
@@ -251,7 +354,7 @@ function V86Dashboard() {
   );
   const activePrompt = useMemo(() => {
     const currentType = snapshot?.game.type ?? selectedGame?.type;
-    if (currentType !== "V85" && currentType !== "V86") return null;
+    if (currentType !== "V85") return null;
     const fromHistory = historyQ.data?.prompts?.find((item) => item.game_type === currentType)?.prompt_text;
     return (fromHistory ?? snapshot?.meta?.learningPromptText ?? "").trim() || null;
   }, [historyQ.data?.prompts, selectedGame?.type, snapshot?.game.type, snapshot?.meta?.learningPromptText]);
@@ -292,10 +395,10 @@ function V86Dashboard() {
                 onChange={(e) => setGameId(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-[#1e3d2a] bg-[#0c1410] px-3 text-sm text-[#e8f0ea]"
               >
-                {games.length === 0 && (
-                  <option value="">Inget V86, V85 eller DD denna dag</option>
+                {visibleGames.length === 0 && (
+                  <option value="">Inget V85 eller DD denna dag</option>
                 )}
-                {games.map((g: GameOption) => (
+                {visibleGames.map((g: GameOption) => (
                   <option key={g.id} value={g.id}>
                     {g.typeLabel}
                     {g.startLabel ? ` · ${g.startLabel}` : ""} — {g.status}
@@ -322,12 +425,12 @@ function V86Dashboard() {
             <Label className="text-[#7fa892]">Budget (kr)</Label>
             <Input
               type="number"
-              min={25}
+              min={isDdGame ? 50 : 25}
               max={10000}
-              step={25}
-              value={autoBudget && isMainPoolGame ? 600 : budgetKr}
+              step={isDdGame ? 10 : 25}
+              value={autoBudget && supportsAutoBudget ? (isDdGame ? DEFAULT_DD_BUDGET_KR : DEFAULT_TRAV_BUDGET_KR) : budgetKr}
               onChange={(e) => setBudgetKr(Number(e.target.value))}
-              disabled={autoBudget && isMainPoolGame}
+              disabled={autoBudget && supportsAutoBudget}
               className="border-[#1e3d2a] bg-[#0c1410] text-[#e8f0ea]"
             />
           </div>
@@ -335,11 +438,11 @@ function V86Dashboard() {
             <Label className="text-[#7fa892]">Målutdelning (kr)</Label>
             <Input
               type="number"
-              min={isMainPoolGame ? 30000 : 5000}
-              step={5000}
-              value={autoBudget && isMainPoolGame ? 30_000 : minPayout}
+              min={isV85Game ? 30_000 : 1_000}
+              step={isV85Game ? 5_000 : 500}
+              value={autoBudget && supportsAutoBudget ? (isDdGame ? DEFAULT_DD_MIN_PAYOUT_KR : DEFAULT_TRAV_MIN_PAYOUT_KR) : minPayout}
               onChange={(e) => setMinPayout(Number(e.target.value))}
-              disabled={autoBudget && isMainPoolGame}
+              disabled={autoBudget && supportsAutoBudget}
               className="border-[#1e3d2a] bg-[#0c1410] text-[#e8f0ea]"
             />
           </div>
@@ -354,7 +457,7 @@ function V86Dashboard() {
               Uppdatera spellista
             </Button>
           </div>
-          {isMainPoolGame && (
+          {supportsAutoBudget && (
             <label className="sm:col-span-4 flex items-start gap-3 rounded-md border border-[#1e3d2a] bg-[#0c1410] px-3 py-2 text-sm text-[#b8f0d0]">
               <input
                 type="checkbox"
@@ -365,7 +468,9 @@ function V86Dashboard() {
               <span>
                 <span className="font-medium text-[#d4f5e2]">Auto-föreslå spelbudget</span>
                 <span className="block text-xs text-[#7fa892]">
-                  Modellen väljer själv mellan 600, 700, 800, 900 och 1000 kr och håller alltid minst 30 000 kr i målutdelning.
+                  {isDdGame
+                    ? "Modellen väljer själv mellan 50 och 60 kr för DD och siktar på en månadsstabil profil."
+                    : "Modellen väljer själv mellan 600, 700, 800, 900 och 1000 kr och håller alltid minst 30 000 kr i målutdelning."}
                 </span>
               </span>
             </label>
@@ -409,6 +514,12 @@ function V86Dashboard() {
                 Sparad i historik
               </Badge>
             )}
+            {snapshot.meta?.fullRaceDataStored && (
+              <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
+                Full data: {snapshot.meta.fullRaceDataRaces ?? snapshot.legs.length} lopp ·{" "}
+                {snapshot.meta.fullRaceDataStarts ?? 0} starter
+              </Badge>
+            )}
             <span className="text-sm text-[#7fa892]">{snapshot.game.id}</span>
             {pool?.turnover != null && (
               <span className="text-sm text-[#b8f0d0]">
@@ -430,7 +541,7 @@ function V86Dashboard() {
               <div className="mb-2 flex items-center gap-2 text-[#d4f5e2]">
                 <Brain className="h-4 w-4 text-[#5ec98a]" />
                 <h3 className="font-medium">
-                  Aktiv lärprompt {snapshot.game.type === "V86" || snapshot.game.type === "V85" ? snapshot.game.type : ""}
+                  Aktiv lärprompt {snapshot.game.type === "V85" ? snapshot.game.type : ""}
                 </h3>
               </div>
               <p className="whitespace-pre-wrap text-xs leading-5 text-[#b8f0d0]">
@@ -447,7 +558,7 @@ function V86Dashboard() {
                 </h2>
                 <p className="text-sm text-[#7fa892]">
                   {snapshot.system.rows.toLocaleString("sv-SE")} rader ×{" "}
-                  {snapshot.game.type === "dd" ? "1" : "0,50"} kr
+                  {formatRowPrice(snapshot.game.type)} kr
                   {snapshot.system.skrellSpikeLeg != null &&
                     ` · Skräll-spik avd ${snapshot.system.skrellSpikeLeg}`}
                 </p>
@@ -619,6 +730,16 @@ function V86Dashboard() {
             })}
           </div>
 
+          <Card className="border-[#1e3d2a] bg-[#111c16] p-4 shadow-none">
+            <div className="mb-2">
+              <h3 className="font-medium text-[#d4f5e2]">Prognostabell för alla hästar</h3>
+              <p className="text-xs text-[#7fa892]">
+                Varje lopp sparas med full hästrank, förväntad slutbild och kort analys så att det kan tränas vidare senare.
+              </p>
+            </div>
+            <HorseAnalysisTables legs={analysisLegsOf(snapshot.legs)} />
+          </Card>
+
           {snapshot.andelsspel && snapshot.andelsspel.length > 0 && (
             <Card className="border-[#1e3d2a] bg-[#111c16] p-4 shadow-none">
               <h3 className="mb-3 font-medium text-[#d4f5e2]">
@@ -682,11 +803,11 @@ function V86Dashboard() {
               <Label className="text-[#7fa892]">Speltyp</Label>
               <select
                 value={backtestType}
-                onChange={(e) => setBacktestType(e.target.value as "V86" | "V85")}
+                onChange={(e) => setBacktestType(e.target.value as "V85" | "dd")}
                 className="flex h-10 w-full rounded-md border border-[#1e3d2a] bg-[#111c16] px-3 text-sm text-[#e8f0ea]"
               >
-                <option value="V86">V86</option>
                 <option value="V85">V85</option>
+                <option value="dd">Dagens Dubbel</option>
               </select>
             </div>
             <div className="space-y-1.5">
@@ -712,7 +833,7 @@ function V86Dashboard() {
               <Input
                 type="number"
                 min={1}
-                max={52}
+                max={200}
                 value={backtestMaxGames}
                 onChange={(e) => setBacktestMaxGames(Number(e.target.value))}
                 className="border-[#1e3d2a] bg-[#111c16] text-[#e8f0ea]"
@@ -739,7 +860,9 @@ function V86Dashboard() {
             <span>
               <span className="font-medium text-[#d4f5e2]">Auto-föreslå budget i backtest</span>
               <span className="block text-xs text-[#7fa892]">
-                Varje omgång väljer då själv mellan 600, 700, 800, 900 och 1000 kr, med minst 30 000 kr i målutdelning.
+                {backtestType === "dd"
+                  ? "Varje DD-omgång väljer då själv mellan 50 och 60 kr med fokus på månadsstabilitet."
+                  : "Varje omgång väljer då själv mellan 600, 700, 800, 900 och 1000 kr, med minst 30 000 kr i målutdelning."}
               </span>
             </span>
           </label>
@@ -759,7 +882,7 @@ function V86Dashboard() {
                       {row.budgetKr} kr
                     </Badge>
                     <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
-                      mål {Math.round(row.targetMinPayoutKr ?? 30_000).toLocaleString("sv-SE")} kr
+                      mål {Math.round(row.targetMinPayoutKr ?? (row.gameType === "dd" ? DEFAULT_DD_MIN_PAYOUT_KR : 30_000)).toLocaleString("sv-SE")} kr
                     </Badge>
                   </div>
                   <p className="mt-2 text-sm text-[#b8f0d0]">
@@ -793,6 +916,7 @@ function V86Dashboard() {
           <div className="mt-4 space-y-3">
             {historyQ.data.rows.map((row: any) => {
               const selections = systemSelectionsOf(row.system);
+              const storedLegs = analysisLegsOf(row.legs);
               const hitSummary = hitSummaryOf(row.hitSummary);
               const postmortem = postmortemOf(row.postmortem);
               const resolvedLegs = resolvedLegsOf(row.result);
@@ -813,6 +937,16 @@ function V86Dashboard() {
                     <span className="text-xs text-[#7fa892]">
                       Sparad {formatDateTime(row.createdAt)}
                     </span>
+                    {row.meta?.analysisVersion != null && (
+                      <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
+                        Analys #{row.meta.analysisVersion}
+                      </Badge>
+                    )}
+                    {row.meta?.fullRaceDataStored && (
+                      <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
+                        {row.meta.fullRaceDataRaces ?? "?"} lopp · {row.meta.fullRaceDataStarts ?? "?"} starter sparade
+                      </Badge>
+                    )}
                     {row.resolvedAt ? (
                       <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
                         Resolve:ad {formatDateTime(row.resolvedAt)}
@@ -869,6 +1003,15 @@ function V86Dashboard() {
                           <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-[#7fa892]">
                             {row.learningPrompt}
                           </p>
+                        </div>
+                      )}
+
+                      {storedLegs.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-wide text-[#5ec98a]">
+                            Sparad hästtabell
+                          </p>
+                          <HorseAnalysisTables legs={storedLegs} compact />
                         </div>
                       )}
                     </div>

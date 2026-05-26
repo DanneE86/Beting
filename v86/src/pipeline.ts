@@ -10,9 +10,11 @@ import { analyzeGame } from "./analyze";
 import {
   AUTO_MAIN_POOL_BUDGETS_KR,
   buildSystem,
+  recommendDdPlay,
   recommendMainPoolPlay,
 } from "./system-builder";
 import { fetchTravsportForGame } from "./travsport/fetch-game";
+import type { TravsportIndex } from "./travsport/types";
 import {
   collectUpcomingV86,
   collectUpcomingV85,
@@ -20,7 +22,14 @@ import {
   isSaturdayStart,
   weekdayFromIso,
 } from "./v85-schedule";
-import type { AtgGame, AtgRace, AtgStart, FetchSnapshot, PoolGameType } from "./types";
+import type {
+  AtgGame,
+  AtgRace,
+  AtgStart,
+  FetchSnapshot,
+  PoolGameType,
+  SnapshotRaceData,
+} from "./types";
 
 export interface PipelineInput {
   date?: string;
@@ -196,6 +205,57 @@ function sanitizeRaceForPrematch(race: AtgRace): AtgRace {
   };
 }
 
+function driverDisplayName(start: AtgStart): string {
+  return (
+    start.driver?.shortName ??
+    [start.driver?.firstName, start.driver?.lastName].filter(Boolean).join(" ") ??
+    ""
+  );
+}
+
+export function buildSnapshotRaceData(
+  game: AtgGame,
+  travsportIndex?: TravsportIndex,
+): SnapshotRaceData[] {
+  return game.races.map((race, raceIndex) => ({
+    leg: raceIndex + 1,
+    raceId: race.id,
+    raceNumber: race.number,
+    raceName: race.name,
+    status: race.status,
+    date: race.date,
+    startTime: race.startTime,
+    scheduledStartTime: race.scheduledStartTime,
+    track: race.track,
+    distance: race.distance,
+    startMethod: race.startMethod,
+    result: race.result,
+    pools: race.pools,
+    starts: (race.starts ?? []).map((start) => {
+      const travsportProfile = start.horse?.id ? travsportIndex?.[start.horse.id] ?? null : null;
+      return {
+        startId: start.id,
+        number: start.number,
+        postPosition: start.postPosition,
+        scratched: start.scratched,
+        distance: start.distance,
+        horse: start.horse,
+        driver: start.driver,
+        pools: start.pools,
+        result: start.result,
+        travsportProfile,
+        driverContext: {
+          driverId: start.driver?.id ?? null,
+          driverName: driverDisplayName(start) || `nr ${start.number}`,
+          homeTrack: start.driver?.homeTrack?.name ?? null,
+          pairedHorseStarts: travsportProfile?.driverPairStarts ?? 0,
+          pairedHorseWins: travsportProfile?.driverPairWins ?? 0,
+        },
+      };
+    }),
+  }));
+}
+
 export function sanitizeHistoricalGameForPrematch(game: AtgGame): AtgGame {
   const sanitizedPools = game.pools
     ? Object.fromEntries(
@@ -224,7 +284,7 @@ export async function buildSnapshotFromGame(
 ): Promise<FetchSnapshot> {
   const gameType = game.type as PoolGameType;
 
-  const autoBudget = input.autoBudget === true && gameType !== "dd";
+  const autoBudget = input.autoBudget === true;
   const floorMinPayoutKr =
     gameType === "dd"
       ? input.targetMinPayoutKr ?? defaultMinPayoutKr(gameType)
@@ -242,8 +302,12 @@ export async function buildSnapshotFromGame(
   }
 
   const legs = analyzeGame(game, travsportIndex);
+  const raceData = buildSnapshotRaceData(game, travsportIndex);
+  const raceStartCount = raceData.reduce((sum, race) => sum + race.starts.length, 0);
   const recommendedPlay = autoBudget
-    ? recommendMainPoolPlay(game.id, gameType, legs, floorMinPayoutKr)
+    ? gameType === "dd"
+      ? recommendDdPlay(game.id, gameType, legs, floorMinPayoutKr)
+      : recommendMainPoolPlay(game.id, gameType, legs, floorMinPayoutKr)
     : null;
   const budgetKr =
     recommendedPlay?.budgetKr ??
@@ -275,6 +339,7 @@ export async function buildSnapshotFromGame(
     fetchedAt: new Date().toISOString(),
     game,
     legs,
+    raceData,
     system,
     andelsspel,
     meta: {
@@ -284,6 +349,9 @@ export async function buildSnapshotFromGame(
       isWednesdayRound: isWednesdayStart(firstRaceStart),
       analysisModel: `checklist-v1 + Travsport (${travsportCount} hästar)`,
       travsportHorses: travsportCount,
+      fullRaceDataStored: true,
+      fullRaceDataRaces: raceData.length,
+      fullRaceDataStarts: raceStartCount,
       recommendedPlay: recommendedPlay
         ? {
             mode: "auto-budget",
