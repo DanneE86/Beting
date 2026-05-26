@@ -40,6 +40,7 @@ export const v86Analyze = createServerFn({ method: "POST" })
       gameId?: string;
       budgetKr?: number;
       targetMinPayoutKr?: number;
+      autoBudget?: boolean;
     }) =>
       z
         .object({
@@ -47,6 +48,7 @@ export const v86Analyze = createServerFn({ method: "POST" })
           gameId: z.string().min(1).optional(),
           budgetKr: z.number().min(25).max(50_000).optional(),
           targetMinPayoutKr: z.number().min(1_000).max(10_000_000).optional(),
+          autoBudget: z.boolean().optional(),
         })
         .parse(d),
   )
@@ -56,6 +58,7 @@ export const v86Analyze = createServerFn({ method: "POST" })
       gameId: data.gameId,
       budgetKr: data.budgetKr,
       targetMinPayoutKr: data.targetMinPayoutKr,
+      autoBudget: data.autoBudget,
       includeAndelsspel: true,
       includeTravsport: true,
       travsportDbCache: hybridTravsportCache,
@@ -103,15 +106,17 @@ export const v86BacktestHistory = createServerFn({ method: "POST" })
       maxGames?: number;
       budgetKr?: number;
       targetMinPayoutKr?: number;
+      autoBudget?: boolean;
     }) =>
       z
         .object({
           gameType: z.enum(["V85", "V86", "dd"]),
           fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-          maxGames: z.number().int().min(1).max(24).optional(),
+          maxGames: z.number().int().min(1).max(52).optional(),
           budgetKr: z.number().min(25).max(50_000).optional(),
           targetMinPayoutKr: z.number().min(1_000).max(10_000_000).optional(),
+          autoBudget: z.boolean().optional(),
         })
         .parse(d),
   )

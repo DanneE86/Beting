@@ -42,6 +42,8 @@ export type TravSystemHitSummary = {
   fullHit: boolean;
   payoutTierHit: string | null;
   payoutAmountKr: number | null;
+  payoutPerWinningRowKr: number | null;
+  winningRowCount: number;
   hitLegs: number[];
   missLegs: Array<{
     leg: number;
@@ -153,11 +155,15 @@ export function buildSystemHitSummary(
 ): TravSystemHitSummary {
   const missLegs: TravSystemHitSummary["missLegs"] = [];
   const hitLegs: number[] = [];
+  const rowDistribution = Array(system.selections.length + 1).fill(0);
+  rowDistribution[0] = 1;
 
   for (const selection of system.selections) {
     const leg = resolved.legs.find((item) => item.leg === selection.leg);
     if (!leg) continue;
-    const isHit = leg.winners.some((winner) => selection.picks.includes(winner));
+    const hitOptionCount = leg.winners.filter((winner) => selection.picks.includes(winner)).length;
+    const missOptionCount = Math.max(0, selection.picks.length - hitOptionCount);
+    const isHit = hitOptionCount > 0;
     if (isHit) hitLegs.push(selection.leg);
     else {
       missLegs.push({
@@ -167,6 +173,13 @@ export function buildSystemHitSummary(
         reserveOrder: leg.reserveOrder,
       });
     }
+
+    for (let hits = system.selections.length - 1; hits >= 0; hits--) {
+      const currentRows = rowDistribution[hits] ?? 0;
+      if (currentRows === 0) continue;
+      rowDistribution[hits] = currentRows * missOptionCount;
+      rowDistribution[hits + 1] = (rowDistribution[hits + 1] ?? 0) + currentRows * hitOptionCount;
+    }
   }
 
   const correctLegs = hitLegs.length;
@@ -174,12 +187,15 @@ export function buildSystemHitSummary(
     resolved.payouts.resultPayouts && resolved.payouts.resultPayouts[String(correctLegs)]
       ? String(correctLegs)
       : null;
-  const payoutAmountKr =
+  const winningRowCount = payoutTierHit != null ? rowDistribution[correctLegs] ?? 0 : 0;
+  const payoutPerWinningRowKr =
     payoutTierHit != null
       ? resolved.payouts.resultPayouts?.[payoutTierHit]?.payout != null
         ? resolved.payouts.resultPayouts[payoutTierHit]!.payout ?? null
         : null
       : null;
+  const payoutAmountKr =
+    payoutPerWinningRowKr != null ? payoutPerWinningRowKr * winningRowCount : null;
 
   return {
     totalLegs: system.selections.length,
@@ -187,6 +203,8 @@ export function buildSystemHitSummary(
     fullHit: correctLegs === system.selections.length,
     payoutTierHit,
     payoutAmountKr,
+    payoutPerWinningRowKr,
+    winningRowCount,
     hitLegs,
     missLegs,
   };
@@ -775,8 +793,9 @@ export async function backtestTravHistory(input: {
   maxGames?: number;
   budgetKr?: number;
   targetMinPayoutKr?: number;
+  autoBudget?: boolean;
 }) {
-  const maxGames = Math.max(1, Math.min(input.maxGames ?? RECENT_TRAV_LEARNING_WINDOW, 24));
+  const maxGames = Math.max(1, Math.min(input.maxGames ?? RECENT_TRAV_LEARNING_WINDOW, 52));
   const rows: Array<{
     id: string | null;
     gameId: string;
@@ -785,6 +804,10 @@ export async function backtestTravHistory(input: {
     correctLegs: number;
     totalLegs: number;
     payoutAmountKr: number | null;
+    budgetKr: number;
+    targetMinPayoutKr: number;
+    recommendedBudgetKr?: number | null;
+    recommendedReason?: string | null;
     summary: string;
     lessons: string[];
   }> = [];
@@ -804,6 +827,7 @@ export async function backtestTravHistory(input: {
       const snapshot = await buildSnapshotFromGame(prematchGame, {
         budgetKr: input.budgetKr,
         targetMinPayoutKr: input.targetMinPayoutKr,
+        autoBudget: input.autoBudget,
         includeAndelsspel: false,
         includeTravsport: true,
         travsportDbCache: hybridTravsportCache,
@@ -842,6 +866,10 @@ export async function backtestTravHistory(input: {
         correctLegs: hitSummary.correctLegs,
         totalLegs: hitSummary.totalLegs,
         payoutAmountKr: hitSummary.payoutAmountKr,
+        budgetKr: snapshotWithMeta.system.budgetKr,
+        targetMinPayoutKr: snapshotWithMeta.system.targetMinPayoutKr,
+        recommendedBudgetKr: snapshotWithMeta.meta?.recommendedPlay?.budgetKr ?? null,
+        recommendedReason: snapshotWithMeta.meta?.recommendedPlay?.reason ?? null,
         summary: postmortem.summary ?? `${hitSummary.correctLegs}/${hitSummary.totalLegs} rätt`,
         lessons: Array.isArray(postmortem.lessons) ? postmortem.lessons.slice(0, 3) : [],
       });

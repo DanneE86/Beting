@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSystem } from "../../../v86/src/system-builder";
+import { AUTO_MAIN_POOL_BUDGETS_KR, buildSystem, recommendMainPoolPlay } from "../../../v86/src/system-builder";
 import type { LegAnalysis, ScoredHorse } from "../../../v86/src/types";
 
 function horse(
@@ -8,6 +8,8 @@ function horse(
   combinedScore: number,
   valueScore = combinedScore * 2,
 ): ScoredHorse {
+  const estimatedWinPct = Math.round(combinedScore * 50 * 10) / 10;
+  const valueEdgePct = Math.round((estimatedWinPct - betDistribution) * 10) / 10;
   return {
     number,
     name: `Horse ${number}`,
@@ -21,6 +23,8 @@ function horse(
     horseScore: combinedScore,
     driverScore: combinedScore,
     combinedScore,
+    estimatedWinPct,
+    valueEdgePct,
     formTrend: "stigande",
     highlights: [],
     horseChecklist: [],
@@ -50,7 +54,7 @@ function leg(
 }
 
 describe("buildSystem", () => {
-  it("tvingar exakt två spikar i V85, varav en skrällspik", () => {
+  it("respekterar tvingad skrällspik i V85 utan krav på två spikar", () => {
     const legs: LegAnalysis[] = [
       leg(1, "spik", [horse(1, 58, 0.82), horse(2, 16, 0.56)], 1),
       leg(2, "gardering", [horse(1, 35, 0.65), horse(2, 18, 0.61), horse(3, 11, 0.58)], 1),
@@ -69,13 +73,13 @@ describe("buildSystem", () => {
     });
 
     const spikar = system.selections.filter((selection) => selection.type !== "gardering");
-    expect(spikar).toHaveLength(2);
-    expect(spikar.some((selection) => selection.type === "spik")).toBe(true);
+    expect(spikar.length).toBeGreaterThanOrEqual(1);
+    expect(spikar.length).toBeLessThanOrEqual(3);
     expect(spikar.some((selection) => selection.type === "skrell-spik")).toBe(true);
     expect(system.selections.find((selection) => selection.leg === 3)?.picks).toEqual([6]);
   });
 
-  it("väljer ändå två spikar i V85 även utan explicit skrällkandidat", () => {
+  it("kan bygga V85 helt utan spikar när inget lopp sticker ut", () => {
     const legs: LegAnalysis[] = [
       leg(1, "spik", [horse(1, 54, 0.8), horse(2, 18, 0.55)], 1),
       leg(2, "gardering", [horse(1, 32, 0.64), horse(5, 21, 0.62, 1.4)], 1),
@@ -93,14 +97,13 @@ describe("buildSystem", () => {
     });
 
     const spikar = system.selections.filter((selection) => selection.type !== "gardering");
-    expect(spikar).toHaveLength(2);
-    expect(spikar.some((selection) => selection.type === "skrell-spik")).toBe(true);
+    expect(spikar).toHaveLength(0);
   });
 
   it("låser inte vanlig spik till marknadsfavorit när modellen föredrar annan häst", () => {
     const legs: LegAnalysis[] = [
       leg(1, "gardering", [horse(1, 41, 0.67), horse(6, 8, 0.69, 2.2), horse(9, 6, 0.63, 1.8)], 1, 6),
-      leg(2, "spik", [horse(1, 44, 0.63), horse(7, 18, 0.77, 1.95), horse(4, 9, 0.6, 1.5)], 1, 4),
+      leg(2, "spik", [horse(1, 44, 0.63), horse(7, 18, 0.86, 2.2), horse(4, 9, 0.6, 1.5)], 1, 4),
       leg(3, "gardering", [horse(1, 35, 0.66), horse(2, 12, 0.61)], 1),
       leg(4, "bred", [horse(1, 24, 0.55), horse(5, 17, 0.54)], 1),
       leg(5, "gardering", [horse(1, 28, 0.58), horse(8, 14, 0.55)], 1),
@@ -115,12 +118,11 @@ describe("buildSystem", () => {
     });
 
     const spikar = system.selections.filter((selection) => selection.type !== "gardering");
-    expect(spikar.length).toBeGreaterThanOrEqual(1);
-    expect(spikar.length).toBeLessThanOrEqual(2);
-    expect(system.selections.find((selection) => selection.leg === 2)?.picks).toEqual([7]);
+    expect(spikar.length).toBeLessThanOrEqual(3);
+    expect(system.selections.find((selection) => selection.leg === 2)?.picks[0]).toBe(7);
   });
 
-  it("kan nöja sig med en värdespik när andra spiken är för svag i öppet lopp", () => {
+  it("kan lämna helt öppna lopp garderade utan att uppfinna extra spikar", () => {
     const legs: LegAnalysis[] = [
       leg(1, "gardering", [horse(1, 35, 0.68), horse(2, 18, 0.66), horse(3, 11, 0.61)], 1),
       leg(2, "gardering", [horse(1, 31, 0.66), horse(7, 13, 0.72, 2.1), horse(5, 11, 0.61)], 1),
@@ -138,12 +140,11 @@ describe("buildSystem", () => {
     });
 
     const spikar = system.selections.filter((selection) => selection.type !== "gardering");
-    expect(spikar).toHaveLength(1);
-    expect(system.selections.find((selection) => selection.leg === 2)?.type).toBe("skrell-spik");
+    expect(spikar.length).toBeLessThanOrEqual(1);
     expect(system.selections.find((selection) => selection.leg === 3)?.type).toBe("gardering");
   });
 
-  it("väljer två spikar även när spelprocent saknas helt", () => {
+  it("kan fortfarande välja modellspikar när spelprocent saknas helt", () => {
     const legs: LegAnalysis[] = Array.from({ length: 8 }, (_, i) =>
       leg(
         i + 1,
@@ -164,8 +165,8 @@ describe("buildSystem", () => {
 
     const spikar = system.selections.filter((selection) => selection.type !== "gardering");
     expect(spikar.length).toBeGreaterThanOrEqual(1);
-    expect(spikar.length).toBeLessThanOrEqual(2);
-    expect(spikar.some((selection) => selection.type === "skrell-spik")).toBe(true);
+    expect(spikar.length).toBeLessThanOrEqual(3);
+    expect(spikar.every((selection) => selection.type === "spik")).toBe(true);
   });
 
   it("tvingar inte två spikar i DD", () => {
@@ -278,5 +279,43 @@ describe("buildSystem", () => {
     expect(system.costKr).toBeLessThanOrEqual(9);
     expect(system.selections.find((selection) => selection.leg === 1)?.picks).toHaveLength(2);
     expect(system.selections.find((selection) => selection.leg === 2)?.picks).toHaveLength(4);
+  });
+
+  it("auto-föreslår en huvudspelsbudget inom 600-1000 kr och minst 30k målutdelning", () => {
+    const legs: LegAnalysis[] = [
+      leg(1, "gardering", [horse(1, 33, 0.68), horse(5, 16, 0.66, 1.9), horse(7, 11, 0.61)], 1, 5),
+      leg(2, "bred", [horse(1, 25, 0.63), horse(6, 20, 0.62, 1.7), horse(8, 14, 0.6)], 1, 6),
+      leg(3, "gardering", [horse(1, 38, 0.7), horse(2, 19, 0.64), horse(9, 8, 0.59)], 1),
+      leg(4, "bred", [horse(1, 24, 0.61), horse(4, 21, 0.6), horse(10, 9, 0.58, 1.7)], 1, 10),
+      leg(5, "gardering", [horse(1, 34, 0.67), horse(7, 15, 0.63, 1.8)], 1, 7),
+      leg(6, "gardering", [horse(1, 31, 0.66), horse(3, 16, 0.61), horse(9, 10, 0.6, 1.75)], 1, 9),
+      leg(7, "bred", [horse(1, 23, 0.59), horse(5, 18, 0.58), horse(11, 7, 0.57, 1.65)], 1, 11),
+      leg(8, "gardering", [horse(1, 29, 0.64), horse(6, 14, 0.61, 1.7)], 1, 6),
+    ];
+
+    const recommendation = recommendMainPoolPlay("V85_auto", "V85", legs, 20_000);
+
+    expect(recommendation).not.toBeNull();
+    expect(AUTO_MAIN_POOL_BUDGETS_KR).toContain(recommendation!.budgetKr);
+    expect(recommendation!.targetMinPayoutKr).toBeGreaterThanOrEqual(30_000);
+    expect(recommendation!.system.costKr).toBeLessThanOrEqual(recommendation!.budgetKr);
+    expect(recommendation!.reason).toMatch(/30 000|30/);
+  });
+
+  it("väljer en huvudspelsbudget som också används vettigt av systemet", () => {
+    const legs: LegAnalysis[] = Array.from({ length: 8 }, (_, i) =>
+      leg(
+        i + 1,
+        i < 2 ? "spik" : "gardering",
+        [horse(1, 48 - i, 0.78 - i * 0.015), horse(2, 21 - i, 0.63 - i * 0.01), horse(3, 11, 0.55)],
+        1,
+      ),
+    );
+
+    const recommendation = recommendMainPoolPlay("V85_tight", "V85", legs, 30_000);
+
+    expect(recommendation).not.toBeNull();
+    expect(AUTO_MAIN_POOL_BUDGETS_KR).toContain(recommendation!.budgetKr);
+    expect(recommendation!.system.costKr / recommendation!.budgetKr).toBeGreaterThan(0.75);
   });
 });

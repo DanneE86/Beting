@@ -113,4 +113,5 @@ describe("pickDefaultPoolGame", () => {
     expect(sanitized.races[0]?.starts[0]?.result).toBeUndefined();
     expect(sanitized.races[0]?.starts[0]?.pools?.V86?.result).toBeUndefined();
   });
+
 });

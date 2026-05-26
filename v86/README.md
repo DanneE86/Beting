@@ -45,5 +45,5 @@ Klicka på en häst i GUI för full checklista per avdelning.
 
 ## System
 
-- V85: 0,25 kr/rad, standardbudget 400 kr (8 avdelningar)
+- V85: 0,50 kr/rad, standardbudget 600 kr (8 avdelningar)
 - DD: 1 kr/rad, standardbudget 50 kr (2 avdelningar)

@@ -261,6 +261,13 @@ export interface FetchSnapshot {
     travsportHorses?: number;
     predictionId?: string | null;
     learningPromptText?: string | null;
+    recommendedPlay?: {
+      mode: "auto-budget";
+      budgetKr: number;
+      targetMinPayoutKr: number;
+      opennessScore: number;
+      reason: string;
+    };
     source?: "live" | "historical-backtest";
     backtestDate?: string | null;
   };

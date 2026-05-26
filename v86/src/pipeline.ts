@@ -7,7 +7,11 @@ import {
 } from "./atg-api";
 import { defaultBudgetKr, defaultMinPayoutKr, gameTypeLabel } from "./game-types";
 import { analyzeGame } from "./analyze";
-import { buildSystem } from "./system-builder";
+import {
+  AUTO_MAIN_POOL_BUDGETS_KR,
+  buildSystem,
+  recommendMainPoolPlay,
+} from "./system-builder";
 import { fetchTravsportForGame } from "./travsport/fetch-game";
 import {
   collectUpcomingV86,
@@ -23,6 +27,7 @@ export interface PipelineInput {
   gameId?: string;
   budgetKr?: number;
   targetMinPayoutKr?: number;
+  autoBudget?: boolean;
   includeAndelsspel?: boolean;
   includeTravsport?: boolean;
   travsportDbCache?: import("./travsport/fetch-game").FetchGameTravsportOptions["dbCache"];
@@ -219,8 +224,11 @@ export async function buildSnapshotFromGame(
 ): Promise<FetchSnapshot> {
   const gameType = game.type as PoolGameType;
 
-  const budgetKr = input.budgetKr ?? defaultBudgetKr(gameType);
-  const targetMinPayoutKr = input.targetMinPayoutKr ?? defaultMinPayoutKr(gameType);
+  const autoBudget = input.autoBudget === true && gameType !== "dd";
+  const floorMinPayoutKr =
+    gameType === "dd"
+      ? input.targetMinPayoutKr ?? defaultMinPayoutKr(gameType)
+      : Math.max(30_000, input.targetMinPayoutKr ?? defaultMinPayoutKr(gameType));
 
   let travsportCount = 0;
   let travsportIndex;
@@ -234,10 +242,23 @@ export async function buildSnapshotFromGame(
   }
 
   const legs = analyzeGame(game, travsportIndex);
-  const system = buildSystem(game.id, gameType, legs, {
-    budgetKr,
-    targetMinPayoutKr,
-  });
+  const recommendedPlay = autoBudget
+    ? recommendMainPoolPlay(game.id, gameType, legs, floorMinPayoutKr)
+    : null;
+  const budgetKr =
+    recommendedPlay?.budgetKr ??
+    (gameType === "dd"
+      ? input.budgetKr ?? defaultBudgetKr(gameType)
+      : AUTO_MAIN_POOL_BUDGETS_KR.includes((input.budgetKr ?? defaultBudgetKr(gameType)) as (typeof AUTO_MAIN_POOL_BUDGETS_KR)[number])
+        ? (input.budgetKr ?? defaultBudgetKr(gameType))
+        : defaultBudgetKr(gameType));
+  const targetMinPayoutKr = recommendedPlay?.targetMinPayoutKr ?? floorMinPayoutKr;
+  const system =
+    recommendedPlay?.system ??
+    buildSystem(game.id, gameType, legs, {
+      budgetKr,
+      targetMinPayoutKr,
+    });
 
   let andelsspel;
   if (input.includeAndelsspel !== false && gameType !== "dd") {
@@ -263,6 +284,15 @@ export async function buildSnapshotFromGame(
       isWednesdayRound: isWednesdayStart(firstRaceStart),
       analysisModel: `checklist-v1 + Travsport (${travsportCount} hästar)`,
       travsportHorses: travsportCount,
+      recommendedPlay: recommendedPlay
+        ? {
+            mode: "auto-budget",
+            budgetKr: recommendedPlay.budgetKr,
+            targetMinPayoutKr: recommendedPlay.targetMinPayoutKr,
+            opennessScore: recommendedPlay.opennessScore,
+            reason: recommendedPlay.reason,
+          }
+        : undefined,
     },
   };
 }

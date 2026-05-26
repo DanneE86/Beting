@@ -35,6 +35,7 @@
     "sync:opta": "npx tsx scripts/sync-all.ts --only=opta",
     "v86:build": "npx tsx scripts/sync-all.ts --only=v86",
     "v86:analyze": "npx tsx v86/scripts/fetch-and-build.ts",
+    "v85:analyze:saturdays": "npx tsx v86/scripts/analyze-v85-saturdays.ts",
     "v86:travsport": "npx tsx v86/scripts/travsport-sync.ts",
     "v86:dev": "vite dev --open /v86",
     "test:v86": "playwright test tests/v86-fetch.spec.ts",

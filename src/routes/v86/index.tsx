@@ -126,6 +126,7 @@ function V86Dashboard() {
   const [gameId, setGameId] = useState<string>("");
   const [budgetKr, setBudgetKr] = useState(DEFAULT_TRAV_BUDGET_KR);
   const [minPayout, setMinPayout] = useState(DEFAULT_TRAV_MIN_PAYOUT_KR);
+  const [autoBudget, setAutoBudget] = useState(true);
   const [copied, setCopied] = useState(false);
   const [expandedHorse, setExpandedHorse] = useState<string | null>(null);
   const [showAllLegs, setShowAllLegs] = useState<Record<number, boolean>>({});
@@ -133,6 +134,7 @@ function V86Dashboard() {
   const [backtestFromDate, setBacktestFromDate] = useState(daysAgoIso(90));
   const [backtestToDate, setBacktestToDate] = useState(todayIso());
   const [backtestMaxGames, setBacktestMaxGames] = useState(DEFAULT_BACKTEST_GAMES);
+  const [backtestAutoBudget, setBacktestAutoBudget] = useState(true);
 
   const gamesQ = useQuery({
     queryKey: ["v86-games", date],
@@ -141,10 +143,9 @@ function V86Dashboard() {
 
   const games = gamesQ.data?.games ?? [];
   const selectedGame = games.find((g) => g.id === gameId);
+  const isMainPoolGame = selectedGame?.type === "V85" || selectedGame?.type === "V86";
   const historyFilterType =
-    selectedGame?.type === "V85" || selectedGame?.type === "V86"
-      ? selectedGame.type
-      : "all";
+    isMainPoolGame ? selectedGame.type : "all";
 
   useEffect(() => {
     if (!games.length) return;
@@ -181,8 +182,9 @@ function V86Dashboard() {
         data: {
           date,
           gameId: gameId || undefined,
-          budgetKr,
-          targetMinPayoutKr: minPayout,
+          budgetKr: autoBudget && isMainPoolGame ? undefined : budgetKr,
+          targetMinPayoutKr: autoBudget && isMainPoolGame ? 30_000 : Math.max(30_000, minPayout),
+          autoBudget: autoBudget && isMainPoolGame,
         },
       }),
     onError: (e: Error) => toast.error(e.message),
@@ -224,8 +226,9 @@ function V86Dashboard() {
           fromDate: backtestFromDate,
           toDate: backtestToDate,
           maxGames: backtestMaxGames,
-          budgetKr,
-          targetMinPayoutKr: minPayout,
+          budgetKr: backtestAutoBudget ? undefined : budgetKr,
+          targetMinPayoutKr: backtestAutoBudget ? 30_000 : Math.max(30_000, minPayout),
+          autoBudget: backtestAutoBudget,
         },
       }),
     onError: (e: Error) => toast.error(e.message),
@@ -322,8 +325,9 @@ function V86Dashboard() {
               min={25}
               max={10000}
               step={25}
-              value={budgetKr}
+              value={autoBudget && isMainPoolGame ? 600 : budgetKr}
               onChange={(e) => setBudgetKr(Number(e.target.value))}
+              disabled={autoBudget && isMainPoolGame}
               className="border-[#1e3d2a] bg-[#0c1410] text-[#e8f0ea]"
             />
           </div>
@@ -331,10 +335,11 @@ function V86Dashboard() {
             <Label className="text-[#7fa892]">Målutdelning (kr)</Label>
             <Input
               type="number"
-              min={5000}
+              min={isMainPoolGame ? 30000 : 5000}
               step={5000}
-              value={minPayout}
+              value={autoBudget && isMainPoolGame ? 30_000 : minPayout}
               onChange={(e) => setMinPayout(Number(e.target.value))}
+              disabled={autoBudget && isMainPoolGame}
               className="border-[#1e3d2a] bg-[#0c1410] text-[#e8f0ea]"
             />
           </div>
@@ -349,6 +354,22 @@ function V86Dashboard() {
               Uppdatera spellista
             </Button>
           </div>
+          {isMainPoolGame && (
+            <label className="sm:col-span-4 flex items-start gap-3 rounded-md border border-[#1e3d2a] bg-[#0c1410] px-3 py-2 text-sm text-[#b8f0d0]">
+              <input
+                type="checkbox"
+                checked={autoBudget}
+                onChange={(e) => setAutoBudget(e.target.checked)}
+                className="mt-1 h-4 w-4 accent-[#1a5c38]"
+              />
+              <span>
+                <span className="font-medium text-[#d4f5e2]">Auto-föreslå spelbudget</span>
+                <span className="block text-xs text-[#7fa892]">
+                  Modellen väljer själv mellan 600, 700, 800, 900 och 1000 kr och håller alltid minst 30 000 kr i målutdelning.
+                </span>
+              </span>
+            </label>
+          )}
         </div>
       </Card>
 
@@ -377,6 +398,11 @@ function V86Dashboard() {
                   snapshot.meta.travsportHorses > 0 &&
                   " ✓"}
               </span>
+            )}
+            {snapshot.meta?.recommendedPlay && (
+              <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
+                Auto: {snapshot.meta.recommendedPlay.budgetKr} kr · mål {Math.round(snapshot.meta.recommendedPlay.targetMinPayoutKr).toLocaleString("sv-SE")} kr
+              </Badge>
             )}
             {snapshot.meta?.predictionId && (
               <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
@@ -421,13 +447,18 @@ function V86Dashboard() {
                 </h2>
                 <p className="text-sm text-[#7fa892]">
                   {snapshot.system.rows.toLocaleString("sv-SE")} rader ×{" "}
-                  {snapshot.game.type === "dd" ? "1" : "0,25"} kr
+                  {snapshot.game.type === "dd" ? "1" : "0,50"} kr
                   {snapshot.system.skrellSpikeLeg != null &&
                     ` · Skräll-spik avd ${snapshot.system.skrellSpikeLeg}`}
                 </p>
                 <p className="mt-2 max-w-2xl text-xs text-[#7fa892]">
                   {snapshot.system.estimatedPayoutNote}
                 </p>
+                {snapshot.meta?.recommendedPlay?.reason && (
+                  <p className="mt-2 max-w-3xl text-xs text-[#b8f0d0]">
+                    Autoförslag: {snapshot.meta.recommendedPlay.reason}
+                  </p>
+                )}
               </div>
               <Button
                 size="sm"
@@ -681,7 +712,7 @@ function V86Dashboard() {
               <Input
                 type="number"
                 min={1}
-                max={24}
+                max={52}
                 value={backtestMaxGames}
                 onChange={(e) => setBacktestMaxGames(Number(e.target.value))}
                 className="border-[#1e3d2a] bg-[#111c16] text-[#e8f0ea]"
@@ -698,6 +729,20 @@ function V86Dashboard() {
               </Button>
             </div>
           </div>
+          <label className="mt-3 flex items-start gap-3 rounded-md border border-[#1e3d2a] bg-[#111c16] px-3 py-2 text-sm text-[#b8f0d0]">
+            <input
+              type="checkbox"
+              checked={backtestAutoBudget}
+              onChange={(e) => setBacktestAutoBudget(e.target.checked)}
+              className="mt-1 h-4 w-4 accent-[#1a5c38]"
+            />
+            <span>
+              <span className="font-medium text-[#d4f5e2]">Auto-föreslå budget i backtest</span>
+              <span className="block text-xs text-[#7fa892]">
+                Varje omgång väljer då själv mellan 600, 700, 800, 900 och 1000 kr, med minst 30 000 kr i målutdelning.
+              </span>
+            </span>
+          </label>
 
           {backtestM.data?.rows?.length ? (
             <div className="mt-4 grid gap-2 lg:grid-cols-2">
@@ -710,12 +755,21 @@ function V86Dashboard() {
                     <Badge className="bg-[#1a5c38] text-[#d4f5e2]">{row.gameType}</Badge>
                     <span className="font-medium text-[#e8f0ea]">{row.gameId}</span>
                     <span className="text-xs text-[#7fa892]">{row.gameDate ?? "—"}</span>
+                    <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
+                      {row.budgetKr} kr
+                    </Badge>
+                    <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
+                      mål {Math.round(row.targetMinPayoutKr ?? 30_000).toLocaleString("sv-SE")} kr
+                    </Badge>
                   </div>
                   <p className="mt-2 text-sm text-[#b8f0d0]">
                     {row.correctLegs}/{row.totalLegs} rätt
                     {row.payoutAmountKr != null ? ` · ${formatCurrencyKr(row.payoutAmountKr)}` : ""}
                   </p>
                   <p className="mt-1 text-xs text-[#7fa892]">{row.summary}</p>
+                  {row.recommendedReason ? (
+                    <p className="mt-1 text-xs text-[#b8f0d0]">{row.recommendedReason}</p>
+                  ) : null}
                   {Array.isArray(row.lessons) && row.lessons.length > 0 && (
                     <ul className="mt-2 space-y-1 text-xs text-[#b8f0d0]">
                       {row.lessons.map((lesson: string, idx: number) => (
