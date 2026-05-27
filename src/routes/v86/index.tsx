@@ -729,7 +729,7 @@ export function TravRuleDashboardPage({
             </h2>
             <p className="mt-2 max-w-3xl text-sm text-[#b8f0d0]">
               Modellen går nu alltid igenom hela avdelningen först och sätter en
-              full hästrank med {showMarketView ? "vinstprocent, spelprocent och kommentar" : "vinstprocent och kommentar"}.
+              full hästrank med vinstprocent, spelprocent och kommentar.
               Först när ranken är klar byggs systemet från samma ordning.
             </p>
           </Card>
@@ -866,7 +866,7 @@ export function TravRuleDashboardPage({
                                 </span>
                               </span>
                               <span className="tabular-nums text-[#7fa892]">
-                                {showMarketView
+                                {h.betDistribution != null
                                   ? `${h.betDistribution.toFixed(1)}% spel`
                                   : `${(h.estimatedWinPct ?? 0).toFixed(1)}% vinst`}
                               </span>
