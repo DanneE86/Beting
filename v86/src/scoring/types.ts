@@ -17,4 +17,8 @@ export interface HorseDriverScores {
   combinedScore: number;
   formTrend: "stigande" | "toppad" | "nedåtgående" | "okänd";
   highlights: string[];
+  tempoTripScore?: number;
+  tempoTripStyle?: "front" | "closer" | "versatile" | "okänd";
+  gallopRiskScore?: number;
+  gallopRiskLevel?: "låg" | "medel" | "hög";
 }

@@ -52,6 +52,24 @@ function profile(horseId: number, fetchedAt: string): TravsportHorseProfile {
     trackStarts: 0,
     driverPairStarts: 0,
     driverPairWins: 0,
+    tempoTripProfile: {
+      sampleSize: 0,
+      earlySpeedScore: 0.5,
+      closingSpeedScore: 0.5,
+      versatilityScore: 0.5,
+      profileScore: 0.5,
+      style: "okänd",
+      note: "Ingen tydlig tempo/trip-historik ännu",
+    },
+    gallopProfile: {
+      sampleSize: 0,
+      gallopStarts: 0,
+      gallopRate: 0,
+      recentGallopRate: 0,
+      stabilityScore: 0.5,
+      riskLevel: "medel",
+      note: "Ingen galopphistorik ännu",
+    },
   };
 }
 

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, Fragment } from "react";
+import { useEffect, useMemo, useState, Fragment, type ReactNode } from "react";
 import {
   v86Analyze,
   v86BacktestHistory,
@@ -11,6 +11,7 @@ import {
   type FetchSnapshot,
   type GameOption,
 } from "@/lib/v86.functions";
+import type { TravRuleId } from "../../../v86/src/rules";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -31,8 +32,27 @@ import { toast } from "sonner";
 import { rowPriceKr } from "../../../v86/src/game-types";
 
 export const Route = createFileRoute("/v86/")({
-  component: V86Dashboard,
+  component: Rule1Page,
 });
+
+export type TravRuleDashboardProps = {
+  ruleId: TravRuleId;
+  title: string;
+  description: string;
+  badgeText?: string;
+  extraIntro?: ReactNode;
+};
+
+function Rule1Page() {
+  return (
+    <TravRuleDashboardPage
+      ruleId="rule1"
+      title="Regel 1: ej marknad"
+      description="Den aktiva travregeln bygger rank och system utan att luta sig mot vad folk har spelat på. Analysen ska styras av ren hästdata, kuskdata, form, spår, bana, distans och Travsport-signaler."
+      badgeText="Aktiv regel"
+    />
+  );
+}
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -71,6 +91,20 @@ function formatDateTime(value: string | null | undefined) {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("sv-SE");
+}
+
+function formatDateOnly(value: string | null | undefined) {
+  if (!value) return "—";
+  const date = new Date(`${value.slice(0, 10)}T12:00:00Z`);
+  return Number.isNaN(date.getTime()) ? value.slice(0, 10) : date.toLocaleDateString("sv-SE");
+}
+
+function bestKmTimeFromTravsport(
+  starts: Array<{ kmTime?: string | null; kmTimeSeconds?: number | null; date?: string; withdrawn?: boolean }>,
+) {
+  const candidates = starts.filter((row) => !row.withdrawn && row.kmTimeSeconds != null);
+  if (candidates.length === 0) return null;
+  return [...candidates].sort((a, b) => (a.kmTimeSeconds ?? 9999) - (b.kmTimeSeconds ?? 9999))[0] ?? null;
 }
 
 function systemSelectionsOf(system: unknown) {
@@ -155,9 +189,11 @@ function analysisLegsOf(legs: unknown) {
 function HorseAnalysisTables({
   legs,
   compact = false,
+  showMarketColumns = false,
 }: {
   legs: ReturnType<typeof analysisLegsOf>;
   compact?: boolean;
+  showMarketColumns?: boolean;
 }) {
   if (!legs.length) return null;
 
@@ -183,8 +219,8 @@ function HorseAnalysisTables({
                     <th className="px-2 py-1">Häst</th>
                     <th className="px-2 py-1">Förväntad slutbild</th>
                     <th className="px-2 py-1">Vinst%</th>
-                    <th className="px-2 py-1">Spel%</th>
-                    <th className="px-2 py-1">Edge</th>
+                    {showMarketColumns && <th className="px-2 py-1">Spel%</th>}
+                    {showMarketColumns && <th className="px-2 py-1">Edge</th>}
                     <th className="px-2 py-1">Kort analys</th>
                   </tr>
                 </thead>
@@ -202,14 +238,18 @@ function HorseAnalysisTables({
                       <td className="px-2 py-1">
                         {horse.estimatedWinPct != null ? `${horse.estimatedWinPct.toFixed(1)}%` : "—"}
                       </td>
-                      <td className="px-2 py-1">
-                        {horse.betDistribution != null ? `${horse.betDistribution.toFixed(1)}%` : "—"}
-                      </td>
-                      <td className="px-2 py-1">
-                        {horse.valueEdgePct != null
-                          ? `${horse.valueEdgePct >= 0 ? "+" : ""}${horse.valueEdgePct.toFixed(1)}%`
-                          : "—"}
-                      </td>
+                      {showMarketColumns && (
+                        <td className="px-2 py-1">
+                          {horse.betDistribution != null ? `${horse.betDistribution.toFixed(1)}%` : "—"}
+                        </td>
+                      )}
+                      {showMarketColumns && (
+                        <td className="px-2 py-1">
+                          {horse.valueEdgePct != null
+                            ? `${horse.valueEdgePct >= 0 ? "+" : ""}${horse.valueEdgePct.toFixed(1)}%`
+                            : "—"}
+                        </td>
+                      )}
                       <td className="px-2 py-1 text-[#b8f0d0]">
                         {horse.analystComment ?? "Ingen kommentar"}
                       </td>
@@ -225,7 +265,13 @@ function HorseAnalysisTables({
   );
 }
 
-function V86Dashboard() {
+export function TravRuleDashboardPage({
+  ruleId,
+  title,
+  description,
+  badgeText = "Regelprofil",
+  extraIntro,
+}: TravRuleDashboardProps) {
   const queryClient = useQueryClient();
   const [date, setDate] = useState(todayIso);
   const [gameId, setGameId] = useState<string>("");
@@ -235,7 +281,7 @@ function V86Dashboard() {
   const [copied, setCopied] = useState(false);
   const [expandedHorse, setExpandedHorse] = useState<string | null>(null);
   const [showAllLegs, setShowAllLegs] = useState<Record<number, boolean>>({});
-  const [backtestType, setBacktestType] = useState<"V85" | "dd">("dd");
+  const [backtestType, setBacktestType] = useState<"V85" | "V86" | "dd">("dd");
   const [backtestFromDate, setBacktestFromDate] = useState(daysAgoIso(90));
   const [backtestToDate, setBacktestToDate] = useState(todayIso());
   const [backtestMaxGames, setBacktestMaxGames] = useState(DEFAULT_BACKTEST_GAMES);
@@ -290,6 +336,7 @@ function V86Dashboard() {
         data: {
           date,
           gameId: gameId || undefined,
+          ruleId,
           budgetKr: autoBudget && supportsAutoBudget ? undefined : budgetKr,
           targetMinPayoutKr: autoBudget && supportsAutoBudget ? undefined : minPayout,
           autoBudget: autoBudget && supportsAutoBudget,
@@ -298,17 +345,18 @@ function V86Dashboard() {
     onError: (e: Error) => toast.error(e.message),
     onSuccess: () => {
       toast.success("Analys klar och sparad i historiken");
-      queryClient.invalidateQueries({ queryKey: ["trav-history"] });
+      queryClient.invalidateQueries({ queryKey: ["trav-history", historyFilterType, ruleId] });
     },
   });
 
   const historyQ = useQuery({
-    queryKey: ["trav-history", historyFilterType],
+    queryKey: ["trav-history", historyFilterType, ruleId],
     queryFn: () =>
       v86History({
         data: {
           limit: 16,
           gameType: historyFilterType,
+          ruleId,
         },
       }),
   });
@@ -322,7 +370,7 @@ function V86Dashboard() {
       } else {
         toast.info("Inga nya avgjorda omgångar att resolve:a just nu");
       }
-      queryClient.invalidateQueries({ queryKey: ["trav-history"] });
+      queryClient.invalidateQueries({ queryKey: ["trav-history", historyFilterType, ruleId] });
     },
   });
 
@@ -331,6 +379,7 @@ function V86Dashboard() {
       v86BacktestHistory({
         data: {
           gameType: backtestType,
+          ruleId,
           fromDate: backtestFromDate,
           toDate: backtestToDate,
           maxGames: backtestMaxGames,
@@ -342,7 +391,7 @@ function V86Dashboard() {
     onError: (e: Error) => toast.error(e.message),
     onSuccess: (res) => {
       toast.success(`Backtest klar: ${res.backtested} omgångar`);
-      queryClient.invalidateQueries({ queryKey: ["trav-history"] });
+      queryClient.invalidateQueries({ queryKey: ["trav-history", historyFilterType, ruleId] });
     },
   });
 
@@ -357,12 +406,36 @@ function V86Dashboard() {
     () => (snapshot ? formatMarks(snapshot) : ""),
     [snapshot],
   );
+  const showMarketView = ruleId === "rule2";
+  const dataModelRows = [
+    {
+      label: "Form och nivå",
+      detail: "Senaste starter, placeringar, formtrend, starter totalt och vinstprocent (ATG + Travsport).",
+    },
+    {
+      label: "Tempo/trip",
+      detail: "Byggs från historiska starter: framspår/bakspår + resultat ger en profil (front/closer/versatile).",
+    },
+    {
+      label: "Galopprisk",
+      detail: "Beräknas från andel galopp/disk i historiken, med extra vikt på de senaste starterna.",
+    },
+    {
+      label: "Resa och dagsstatus",
+      detail: "Resa senaste start är proxy från historik. Live-status och utrustningsändringar hämtas automatiskt från ATG.",
+    },
+    {
+      label: "Saknad data",
+      detail: "Saknade fält visas i coverage/missing notes. Veterinär, värmning och exakta splits finns inte i öppna API:er.",
+    },
+  ] as const;
   const activePrompt = useMemo(() => {
     const currentType = snapshot?.game.type ?? selectedGame?.type;
     if (currentType !== "V85") return null;
-    const fromHistory = historyQ.data?.prompts?.find((item) => item.game_type === currentType)?.prompt_text;
+    const promptScope = `trav:${currentType}:${ruleId}`;
+    const fromHistory = historyQ.data?.prompts?.find((item) => item.game_type === promptScope)?.prompt_text;
     return (fromHistory ?? snapshot?.meta?.learningPromptText ?? "").trim() || null;
-  }, [historyQ.data?.prompts, selectedGame?.type, snapshot?.game.type, snapshot?.meta?.learningPromptText]);
+  }, [historyQ.data?.prompts, ruleId, selectedGame?.type, snapshot?.game.type, snapshot?.meta?.learningPromptText]);
 
   useEffect(() => {
     setShowAllLegs({});
@@ -379,6 +452,38 @@ function V86Dashboard() {
 
   return (
     <div className="space-y-6">
+      <Card className="border-[#2d6b45] bg-[#13261c] p-4 shadow-none">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-[#d4f5e2]">
+              {title}
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm text-[#b8f0d0]">
+              {description}
+            </p>
+          </div>
+          <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
+            {badgeText}
+          </Badge>
+        </div>
+      </Card>
+
+      {extraIntro}
+
+      <Card className="border-[#1e3d2a] bg-[#111c16] p-4 shadow-none">
+        <h3 className="font-medium text-[#d4f5e2]">Så läser modellen datan</h3>
+        <p className="mt-1 text-xs text-[#7fa892]">
+          Allt nedan hämtas automatiskt från öppna källor när omgången analyseras.
+        </p>
+        <div className="mt-3 space-y-2 text-sm text-[#c8ddd2]">
+          {dataModelRows.map((row) => (
+            <p key={row.label}>
+              <span className="text-[#5ec98a]">{row.label}:</span> {row.detail}
+            </p>
+          ))}
+        </div>
+      </Card>
+
       <Card className="border-[#1e3d2a] bg-[#111c16] p-4 text-[#e8f0ea] shadow-none">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1.5">
@@ -622,8 +727,8 @@ function V86Dashboard() {
             </h2>
             <p className="mt-2 max-w-3xl text-sm text-[#b8f0d0]">
               Modellen går nu alltid igenom hela avdelningen först och sätter en
-              full hästrank med vinstprocent, spelprocent och kommentar. Först när
-              ranken är klar byggs systemet från samma ordning.
+              full hästrank med {showMarketView ? "vinstprocent, spelprocent och kommentar" : "vinstprocent och kommentar"}.
+              Först när ranken är klar byggs systemet från samma ordning.
             </p>
           </Card>
 
@@ -655,6 +760,94 @@ function V86Dashboard() {
                     {visibleHorses.map((h) => {
                       const key = `${leg.leg}-${h.number}`;
                       const open = expandedHorse === key;
+                      const raceDataForLeg = snapshot.raceData?.find((race) => race.leg === leg.leg);
+                      const startData = raceDataForLeg?.starts?.find((start) => start.number === h.number);
+                      const tsProfile = startData?.travsportProfile ?? null;
+                      const bestKm = tsProfile ? bestKmTimeFromTravsport(tsProfile.starts ?? []) : null;
+                      const latestStart = tsProfile?.recentStarts?.[0];
+                      const shoeChanged =
+                        Boolean(startData?.horse?.shoes?.front?.changed) || Boolean(startData?.horse?.shoes?.back?.changed);
+                      const sulkyChanged = Boolean(startData?.horse?.sulky?.type?.changed);
+                      const liveStatus = startData?.scratched
+                        ? "Struken"
+                        : raceDataForLeg?.status
+                          ? `Status: ${raceDataForLeg.status}`
+                          : "Anmäld";
+                      const equipmentStatus = shoeChanged || sulkyChanged
+                        ? `${shoeChanged ? "Skor ändrat" : ""}${shoeChanged && sulkyChanged ? " + " : ""}${sulkyChanged ? "vagn ändrad" : ""}`
+                        : "Ingen registrerad ändring";
+                      const horseFacts: Array<{ label: string; value: string; sourceLabel: string; sourceUrl: string }> = [
+                        {
+                          label: "Spår idag",
+                          value: startData?.postPosition != null ? String(startData.postPosition) : "—",
+                          sourceLabel: "ATG Racinginfo API",
+                          sourceUrl: "https://www.atg.se/services/racinginfo/v1/api",
+                        },
+                        {
+                          label: "Distans idag",
+                          value: raceDataForLeg?.distance ? `${raceDataForLeg.distance} m` : "—",
+                          sourceLabel: "ATG Racinginfo API",
+                          sourceUrl: "https://www.atg.se/services/racinginfo/v1/api",
+                        },
+                        {
+                          label: "Bästa km-tid",
+                          value: bestKm
+                            ? `${bestKm.kmTime ?? `${bestKm.kmTimeSeconds?.toFixed(1)}s`} · ${formatDateOnly(bestKm.date)}`
+                            : "Saknas i historik",
+                          sourceLabel: "Travsport Web API",
+                          sourceUrl: "https://api.travsport.se/webapi",
+                        },
+                        {
+                          label: "Galopprisk",
+                          value:
+                            h.gallopRiskLevel && h.gallopRiskScore != null
+                              ? `${h.gallopRiskLevel} (${Math.round(h.gallopRiskScore * 100)}% stabilitet)`
+                              : "—",
+                          sourceLabel: "Travsport Web API",
+                          sourceUrl: "https://api.travsport.se/webapi",
+                        },
+                        {
+                          label: "Tempo/trip-profil",
+                          value:
+                            h.tempoTripStyle && h.tempoTripScore != null
+                              ? `${h.tempoTripStyle} (${Math.round(h.tempoTripScore * 100)}%)`
+                              : "—",
+                          sourceLabel: "Travsport Web API",
+                          sourceUrl: "https://api.travsport.se/webapi",
+                        },
+                        {
+                          label: "Senaste start",
+                          value: latestStart
+                            ? `${formatDateOnly(latestStart.date)} · plac ${latestStart.placementDisplay || latestStart.placement || "?"}`
+                            : "Saknas",
+                          sourceLabel: "Travsport Web API",
+                          sourceUrl: "https://api.travsport.se/webapi",
+                        },
+                        {
+                          label: "Resa senaste start",
+                          value: latestStart?.tripComment ?? "Saknas i rådata",
+                          sourceLabel: "Travsport Web API",
+                          sourceUrl: "https://api.travsport.se/webapi",
+                        },
+                        {
+                          label: "Utrustning idag",
+                          value: equipmentStatus,
+                          sourceLabel: "ATG Racinginfo API",
+                          sourceUrl: "https://www.atg.se/services/racinginfo/v1/api",
+                        },
+                        {
+                          label: "Live-status",
+                          value: liveStatus,
+                          sourceLabel: "ATG Racinginfo API",
+                          sourceUrl: "https://www.atg.se/services/racinginfo/v1/api",
+                        },
+                        {
+                          label: "Värmning/veterinär",
+                          value: "Ej exponerat i öppna API-flöden",
+                          sourceLabel: "Coverage-status",
+                          sourceUrl: "https://www.travsport.se/",
+                        },
+                      ];
                       return (
                         <Fragment key={h.number}>
                           <li>
@@ -671,7 +864,9 @@ function V86Dashboard() {
                                 </span>
                               </span>
                               <span className="tabular-nums text-[#7fa892]">
-                                {h.betDistribution.toFixed(1)}% spel
+                                {showMarketView
+                                  ? `${h.betDistribution.toFixed(1)}% spel`
+                                  : `${(h.estimatedWinPct ?? 0).toFixed(1)}% vinst`}
                               </span>
                             </button>
                           </li>
@@ -712,6 +907,28 @@ function V86Dashboard() {
                                   </div>
                                 ))}
                               </div>
+                              <div>
+                                <p className="font-medium text-[#5ec98a]">Relevanta hästfakta</p>
+                                {horseFacts.map((fact) => (
+                                  <div
+                                    key={`${key}-${fact.label}`}
+                                    className="flex justify-between gap-2 text-[#c8ddd2]"
+                                  >
+                                    <span>{fact.label}</span>
+                                    <span>
+                                      {fact.value} · källa:{" "}
+                                      <a
+                                        href={fact.sourceUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-[#5ec98a] hover:underline"
+                                      >
+                                        {fact.sourceLabel}
+                                      </a>
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
                             </li>
                           )}
                         </Fragment>
@@ -737,8 +954,8 @@ function V86Dashboard() {
                   {leg.skrellSpike && (
                     <p className="mt-3 flex items-center gap-1 text-xs text-[#f0c674]">
                       <TrendingUp className="h-3.5 w-3.5" />
-                      Skräll: {leg.skrellSpike.number}. {leg.skrellSpike.name} (
-                      {leg.skrellSpike.betDistribution.toFixed(1)}%)
+                      Skräll: {leg.skrellSpike.number}. {leg.skrellSpike.name}
+                      {showMarketView ? ` (${leg.skrellSpike.betDistribution.toFixed(1)}%)` : ""}
                     </p>
                   )}
                 </Card>
@@ -753,7 +970,10 @@ function V86Dashboard() {
                 Varje lopp sparas med full hästrank, förväntad slutbild och kort analys så att det kan tränas vidare senare.
               </p>
             </div>
-            <HorseAnalysisTables legs={analysisLegsOf(snapshot.legs)} />
+            <HorseAnalysisTables
+              legs={analysisLegsOf(snapshot.legs)}
+              showMarketColumns={showMarketView}
+            />
           </Card>
 
           <Card className="border-[#2d6b45] bg-[#13261c] p-4 shadow-none">
@@ -765,6 +985,70 @@ function V86Dashboard() {
               Spik är rank 1 i loppet, och garderingar fylls på i rankordning.
             </p>
           </Card>
+
+          {snapshot.meta?.rule && (
+            <Card className="border-[#1e3d2a] bg-[#111c16] p-4 shadow-none">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-medium text-[#d4f5e2]">Regelstatus och datatäckning</h3>
+                  <p className="mt-1 text-xs text-[#7fa892]">
+                    {snapshot.meta.rule.label} · version {snapshot.meta.rule.version}
+                    {snapshot.meta.rule.partialExpertMode ? " · partial expert mode" : ""}
+                  </p>
+                </div>
+                <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
+                  {snapshot.meta.rule.usesMarketData ? "Marknad aktiv" : "Datadriven"}
+                </Badge>
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {snapshot.meta.rule.coverage.map((group) => (
+                  <div key={group.id} className="rounded border border-[#1e3d2a] bg-[#0c1410] px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm text-[#d4f5e2]">{group.label}</span>
+                      <Badge
+                        variant="outline"
+                        className={
+                          group.status === "available"
+                            ? "border-[#2d6b45] text-[#5ec98a]"
+                            : group.status === "partial"
+                              ? "border-[#66522a] text-[#f0c674]"
+                              : "border-[#533] text-[#ffb4b4]"
+                        }
+                      >
+                        {group.status}
+                      </Badge>
+                    </div>
+                    {group.detail && <p className="mt-1 text-xs text-[#7fa892]">{group.detail}</p>}
+                  </div>
+                ))}
+              </div>
+              {snapshot.expertConsensus && snapshot.expertConsensus.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-[#5ec98a]">
+                    Expertkonsensus
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {snapshot.expertConsensus.slice(0, 8).map((item) => (
+                      <Badge
+                        key={`${item.leg}-${item.horseNumber}`}
+                        variant="outline"
+                        className="border-[#2d6b45] text-[#b8f0d0]"
+                      >
+                        Avd {item.leg}: {item.horseNumber}. {item.horseName} · {item.consensusPoints.toFixed(1)}p
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {snapshot.meta.rule.missingDataNotes && snapshot.meta.rule.missingDataNotes.length > 0 && (
+                <ul className="mt-3 space-y-1 text-xs text-[#7fa892]">
+                  {snapshot.meta.rule.missingDataNotes.map((note, index) => (
+                    <li key={`${snapshot.game.id}-missing-${index}`}>• {note}</li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          )}
 
           {snapshot.andelsspel && snapshot.andelsspel.length > 0 && (
             <Card className="border-[#1e3d2a] bg-[#111c16] p-4 shadow-none">
@@ -829,10 +1113,11 @@ function V86Dashboard() {
               <Label className="text-[#7fa892]">Speltyp</Label>
               <select
                 value={backtestType}
-                onChange={(e) => setBacktestType(e.target.value as "V85" | "dd")}
+                onChange={(e) => setBacktestType(e.target.value as "V85" | "V86" | "dd")}
                 className="flex h-10 w-full rounded-md border border-[#1e3d2a] bg-[#111c16] px-3 text-sm text-[#e8f0ea]"
               >
                 <option value="V85">V85</option>
+                <option value="V86">V86</option>
                 <option value="dd">Dagens Dubbel</option>
               </select>
             </div>
@@ -963,6 +1248,11 @@ function V86Dashboard() {
                     <span className="text-xs text-[#7fa892]">
                       Sparad {formatDateTime(row.createdAt)}
                     </span>
+                    {row.meta?.rule?.label && (
+                      <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
+                        {row.meta.rule.label}
+                      </Badge>
+                    )}
                     {row.meta?.analysisVersion != null && (
                       <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
                         Analys #{row.meta.analysisVersion}
@@ -1037,7 +1327,11 @@ function V86Dashboard() {
                           <p className="text-xs font-medium uppercase tracking-wide text-[#5ec98a]">
                             Sparad hästtabell
                           </p>
-                          <HorseAnalysisTables legs={storedLegs} compact />
+                          <HorseAnalysisTables
+                            legs={storedLegs}
+                            compact
+                            showMarketColumns={row.meta?.rule?.id === "rule2"}
+                          />
                         </div>
                       )}
                     </div>

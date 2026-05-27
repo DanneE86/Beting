@@ -1,6 +1,6 @@
 import type { AtgGame } from "../types";
 import { fetchHorseResultsRaw } from "./api";
-import { buildHorseProfile, trackNameToCode } from "./parse";
+import { buildHorseProfile, hydrateHorseProfile, trackNameToCode } from "./parse";
 import type { TravsportHorseProfile, TravsportIndex } from "./types";
 
 const CONCURRENCY = 6;
@@ -76,7 +76,7 @@ export async function fetchTravsportForGame(
   await mapPool([...unique.values()], CONCURRENCY, async (task) => {
     const cachedProfile = cachedProfiles[task.horseId] ?? null;
     if (cachedProfile && (allowStaleCache || isFresh(cachedProfile))) {
-      index[task.horseId] = cachedProfile;
+      index[task.horseId] = hydrateHorseProfile(cachedProfile);
       return;
     }
 
@@ -91,7 +91,7 @@ export async function fetchTravsportForGame(
       if (db) await db.set(profile);
     } catch (e) {
       if (cachedProfile) {
-        index[task.horseId] = cachedProfile;
+        index[task.horseId] = hydrateHorseProfile(cachedProfile);
         console.warn(`Travsport häst ${task.horseId}: använder cache efter fetch-fel`);
         return;
       }

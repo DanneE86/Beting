@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import type { PoolGameType } from "../../v86/src/types";
+import type { PoolGameType, TravRuleId } from "../../v86/src/types";
 import { hybridTravsportCache } from "@/lib/travsport-cache-backend";
 import {
   backtestTravHistory,
@@ -16,6 +16,7 @@ import {
   pickDefaultV85Game,
   todayIso,
 } from "../../v86/src/pipeline";
+import { DEFAULT_TRAV_RULE_ID, normalizeTravRuleId } from "../../v86/src/rules";
 import type { GameOption } from "../../v86/src/pipeline";
 import type { FetchSnapshot } from "../../v86/src/types";
 
@@ -38,6 +39,7 @@ export const v86Analyze = createServerFn({ method: "POST" })
     (d: {
       date?: string;
       gameId?: string;
+      ruleId?: TravRuleId;
       budgetKr?: number;
       targetMinPayoutKr?: number;
       autoBudget?: boolean;
@@ -46,6 +48,7 @@ export const v86Analyze = createServerFn({ method: "POST" })
         .object({
           date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
           gameId: z.string().min(1).optional(),
+          ruleId: z.enum(["rule1", "rule2", "rule3", "rule4"]).optional(),
           budgetKr: z.number().min(25).max(50_000).optional(),
           targetMinPayoutKr: z.number().min(1_000).max(10_000_000).optional(),
           autoBudget: z.boolean().optional(),
@@ -56,6 +59,7 @@ export const v86Analyze = createServerFn({ method: "POST" })
     const snapshot = await buildSnapshot({
       date: data.date,
       gameId: data.gameId,
+      ruleId: data.ruleId,
       budgetKr: data.budgetKr,
       targetMinPayoutKr: data.targetMinPayoutKr,
       autoBudget: data.autoBudget,
@@ -64,9 +68,10 @@ export const v86Analyze = createServerFn({ method: "POST" })
       travsportDbCache: hybridTravsportCache,
       travsportAllowStaleCache: true,
     });
+    const ruleId = snapshot.meta?.rule?.id ?? normalizeTravRuleId(data.ruleId);
     const [predictionId, learningPromptText] = await Promise.all([
       saveTravPrediction(snapshot),
-      getTravLearningPrompt(snapshot.game.type).catch(() => null),
+      getTravLearningPrompt(snapshot.game.type, ruleId).catch(() => null),
     ]);
     return {
       ...snapshot,
@@ -80,16 +85,21 @@ export const v86Analyze = createServerFn({ method: "POST" })
 
 export const v86History = createServerFn({ method: "GET" })
   .inputValidator(
-    (d: { limit?: number; gameType?: PoolGameType | "all" }) =>
+    (d: { limit?: number; gameType?: PoolGameType | "all"; ruleId?: TravRuleId | "all" }) =>
       z
         .object({
           limit: z.number().int().min(1).max(100).optional(),
           gameType: z.enum(["V85", "V86", "dd", "all"]).optional(),
+          ruleId: z.enum(["rule1", "rule2", "rule3", "rule4", "all"]).optional(),
         })
         .parse(d),
   )
   .handler(async ({ data }) => {
-    return getTravHistory(data.limit ?? 20, data.gameType && data.gameType !== "all" ? data.gameType : null);
+    return getTravHistory(
+      data.limit ?? 20,
+      data.gameType && data.gameType !== "all" ? data.gameType : null,
+      data.ruleId && data.ruleId !== "all" ? data.ruleId : null,
+    );
   });
 
 export const v86ResolveHistory = createServerFn({ method: "POST" })
@@ -102,6 +112,7 @@ export const v86BacktestHistory = createServerFn({ method: "POST" })
   .inputValidator(
     (d: {
       gameType: PoolGameType;
+      ruleId?: TravRuleId;
       fromDate: string;
       toDate: string;
       maxGames?: number;
@@ -112,6 +123,7 @@ export const v86BacktestHistory = createServerFn({ method: "POST" })
       z
         .object({
           gameType: z.enum(["V85", "V86", "dd"]),
+          ruleId: z.enum(["rule1", "rule2", "rule3", "rule4"]).optional(),
           fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           maxGames: z.number().int().min(1).max(200).optional(),
@@ -122,5 +134,8 @@ export const v86BacktestHistory = createServerFn({ method: "POST" })
         .parse(d),
   )
   .handler(async ({ data }) => {
-    return backtestTravHistory(data);
+    return backtestTravHistory({
+      ...data,
+      ruleId: data.ruleId ?? DEFAULT_TRAV_RULE_ID,
+    });
   });

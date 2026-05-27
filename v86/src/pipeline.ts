@@ -5,8 +5,11 @@ import {
   listAllowedGamesFromCalendar,
   resolveGame,
 } from "./atg-api";
+import { fetchExpertDataBundle, applyRule3Overlay } from "./expert-data";
+import { applyRule4Overlay, buildRule4MissingDataNotes } from "./rule4-data";
 import { defaultBudgetKr, defaultMinPayoutKr, gameTypeLabel } from "./game-types";
 import { analyzeGame } from "./analyze";
+import { DEFAULT_TRAV_RULE_ID, TRAV_RULES, defaultRuleCoverage, normalizeTravRuleId } from "./rules";
 import {
   AUTO_MAIN_POOL_BUDGETS_KR,
   buildSystem,
@@ -30,11 +33,13 @@ import type {
   FetchSnapshot,
   PoolGameType,
   SnapshotRaceData,
+  TravRuleId,
 } from "./types";
 
 export interface PipelineInput {
   date?: string;
   gameId?: string;
+  ruleId?: TravRuleId;
   budgetKr?: number;
   targetMinPayoutKr?: number;
   autoBudget?: boolean;
@@ -298,6 +303,8 @@ export async function buildSnapshotFromGame(
   input: Omit<PipelineInput, "date" | "gameId"> = {},
 ): Promise<FetchSnapshot> {
   const gameType = game.type as PoolGameType;
+  const ruleId = normalizeTravRuleId(input.ruleId);
+  const rule = TRAV_RULES[ruleId];
 
   const autoBudget = input.autoBudget === true;
   const floorMinPayoutKr =
@@ -316,9 +323,40 @@ export async function buildSnapshotFromGame(
     travsportCount = Object.keys(travsportIndex).length;
   }
 
-  const legs = analyzeGame(game, travsportIndex);
+  let legs = analyzeGame(game, travsportIndex, ruleId);
   const raceData = buildSnapshotRaceData(game, travsportIndex);
   const raceStartCount = raceData.reduce((sum, race) => sum + race.starts.length, 0);
+
+  let andelsspel;
+  const shouldFetchAndelsspel = (input.includeAndelsspel !== false || ruleId === "rule3") && gameType !== "dd";
+  if (shouldFetchAndelsspel) {
+    try {
+      andelsspel = await fetchAndelShares(game.id, 12);
+    } catch {
+      andelsspel = undefined;
+    }
+  }
+
+  let expertSignals: FetchSnapshot["expertSignals"];
+  let expertConsensus: FetchSnapshot["expertConsensus"];
+  let coverage = defaultRuleCoverage(ruleId);
+  let missingDataNotes: string[] | undefined;
+  let expertSources: NonNullable<NonNullable<FetchSnapshot["meta"]>["rule"]>["expertSources"];
+
+  if (ruleId === "rule3") {
+    const expertBundle = await fetchExpertDataBundle(game, andelsspel);
+    expertSignals = expertBundle.signals;
+    expertConsensus = expertBundle.consensus;
+    coverage = expertBundle.coverage;
+    missingDataNotes = expertBundle.missingDataNotes;
+    expertSources = expertBundle.sources;
+    legs = applyRule3Overlay(legs, expertBundle.consensus);
+  }
+  if (ruleId === "rule4") {
+    legs = applyRule4Overlay(legs, raceData);
+    missingDataNotes = buildRule4MissingDataNotes(raceData);
+  }
+
   const recommendedPlay = autoBudget
     ? gameType === "dd"
       ? recommendDdPlay(game.id, gameType, legs, floorMinPayoutKr)
@@ -339,15 +377,6 @@ export async function buildSnapshotFromGame(
       targetMinPayoutKr,
     });
 
-  let andelsspel;
-  if (input.includeAndelsspel !== false && gameType !== "dd") {
-    try {
-      andelsspel = await fetchAndelShares(game.id, 12);
-    } catch {
-      andelsspel = undefined;
-    }
-  }
-
   const firstRaceStart = game.races[0]?.startTime ?? game.races[0]?.scheduledStartTime;
 
   return {
@@ -357,16 +386,31 @@ export async function buildSnapshotFromGame(
     raceData,
     system,
     andelsspel,
+    expertSignals,
+    expertConsensus,
     meta: {
       poolStartLabel: formatStartLabel(firstRaceStart),
       poolWeekday: weekdayFromIso(firstRaceStart),
       isSaturdayRound: isSaturdayStart(firstRaceStart),
       isWednesdayRound: isWednesdayStart(firstRaceStart),
-      analysisModel: `checklist-v1 + Travsport (${travsportCount} hästar)`,
+      analysisModel: `${rule.label} · checklist-v1 + Travsport (${travsportCount} hästar)`,
       travsportHorses: travsportCount,
       fullRaceDataStored: true,
       fullRaceDataRaces: raceData.length,
       fullRaceDataStarts: raceStartCount,
+      rule: {
+        id: rule.id,
+        label: rule.label,
+        version: rule.version,
+        usesMarketData: rule.usesMarketData,
+        partialExpertMode:
+          ruleId === "rule3" ? coverage.some((group) => group.status !== "available") : false,
+        expertSourceCount: expertSources?.length ?? 0,
+        expertSignalCount: expertSignals?.length ?? 0,
+        expertSources,
+        coverage,
+        missingDataNotes,
+      },
       recommendedPlay: recommendedPlay
         ? {
             mode: "auto-budget",

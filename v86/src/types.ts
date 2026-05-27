@@ -2,6 +2,24 @@ import type { TravsportHorseProfile } from "./travsport/types";
 
 /** V85, V86 och Dagens Dubbel (ATG-nyckel `dd`). */
 export type PoolGameType = "V85" | "V86" | "dd";
+export type TravRuleId = "rule1" | "rule2" | "rule3" | "rule4";
+
+export type TravCoverageGroupId =
+  | "horseCore"
+  | "technicalCore"
+  | "expertConsensus"
+  | "ratings"
+  | "paceProfile";
+
+export type TravCoverageStatus = "available" | "partial" | "missing";
+
+export interface TravRuleCoverageGroup {
+  id: TravCoverageGroupId;
+  label: string;
+  status: TravCoverageStatus;
+  detail?: string;
+  sourceCount?: number;
+}
 
 export interface AtgPayoutEntry {
   systems?: number | string;
@@ -206,6 +224,10 @@ export interface ScoredHorse {
   confidencePct?: number;
   analystComment?: string;
   formTrend: "stigande" | "toppad" | "nedåtgående" | "okänd";
+  tempoTripScore?: number;
+  tempoTripStyle?: "front" | "closer" | "versatile" | "okänd";
+  gallopRiskScore?: number;
+  gallopRiskLevel?: "låg" | "medel" | "hög";
   highlights: string[];
   horseChecklist: ChecklistItemView[];
   driverChecklist: ChecklistItemView[];
@@ -251,7 +273,31 @@ export interface AndelsShareTip {
   sharesLeft?: number;
   marks?: string;
   expert?: string;
+  description?: string;
   url?: string;
+}
+
+export interface ExpertSignal {
+  sourceId: string;
+  sourceName: string;
+  sourceType: "atg-share" | "news-tip" | "open-tip";
+  sourceUrl?: string | null;
+  publishedAt?: string | null;
+  leg?: number | null;
+  horseNumber?: number | null;
+  horseName?: string | null;
+  rankingLevel?: "top" | "contender" | "outsider" | "mention";
+  consensusPoints: number;
+  text: string;
+}
+
+export interface ExpertConsensusHorse {
+  leg: number;
+  horseNumber: number;
+  horseName: string;
+  sourceCount: number;
+  consensusPoints: number;
+  sourceNames: string[];
 }
 
 export interface SnapshotRaceStartData {
@@ -298,6 +344,8 @@ export interface FetchSnapshot {
   raceData?: SnapshotRaceData[];
   system: BuiltSystem;
   andelsspel?: AndelsShareTip[];
+  expertSignals?: ExpertSignal[];
+  expertConsensus?: ExpertConsensusHorse[];
   travsportNotes?: string[];
   meta?: {
     poolStartLabel?: string;
@@ -322,5 +370,23 @@ export interface FetchSnapshot {
     };
     source?: "live" | "historical-backtest";
     backtestDate?: string | null;
+    rule?: {
+      id: TravRuleId;
+      label: string;
+      version: string;
+      usesMarketData: boolean;
+      partialExpertMode?: boolean;
+      expertSourceCount?: number;
+      expertSignalCount?: number;
+      expertSources?: Array<{
+        id: string;
+        name: string;
+        status: TravCoverageStatus;
+        signalCount: number;
+        note: string;
+      }>;
+      coverage: TravRuleCoverageGroup[];
+      missingDataNotes?: string[];
+    };
   };
 }

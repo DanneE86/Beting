@@ -6,7 +6,7 @@ import { pctFromAtg, weightedAverage } from "./utils";
 export function scoreDriverChecklist(
   start: AtgStart,
   race: AtgRace,
-  betDistributionPct: number,
+  betDistributionPct = 0,
   travsport?: TravsportHorseProfile | null,
 ): { items: ChecklistItem[]; highlights: string[] } {
   const d = start.driver;
@@ -48,7 +48,6 @@ export function scoreDriverChecklist(
 
   const raceMethod = (race as { startMethod?: string }).startMethod ?? "auto";
   const methodScore = 0.6;
-
   const favScore =
     betDistributionPct >= 25
       ? Math.min(1, win26 / 22)
@@ -63,8 +62,7 @@ export function scoreDriverChecklist(
 
   if (win26 >= 18) highlights.push(`Kusk het (${win26.toFixed(0)}% vinst)`);
   if (sameTeam) highlights.push("Kusk/tränare samma team");
-  if (betDistributionPct >= 20 && win26 >= 15)
-    highlights.push("Levererar ofta som favorit");
+  if (betDistributionPct >= 20 && win26 >= 15) highlights.push("Levererar ofta som favorit");
   if (pairStarts >= 2 && pairWins >= 1)
     highlights.push(`Kusk+häst: ${pairWins}/${pairStarts} (Travsport)`);
 

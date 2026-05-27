@@ -30,6 +30,7 @@ export async function fetchAndelShares(
     costKr: Math.round((s.cost ?? 0) / 100),
     sharesLeft: s.sharesForSale,
     expert: [s.initiator?.name, s.shop?.name].filter(Boolean).join(" · "),
+    description: s.description,
     marks: s.isCouponPublic ? `Publik kupong (${s.couponId?.slice(0, 8)}…)` : "Dold kupong",
     url: `https://www.atg.se/andelsspel?gameId=${gameId}`,
   }));

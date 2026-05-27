@@ -74,67 +74,147 @@ function modelRankOfHorse(leg: LegAnalysis, horseNumber: number): number {
   return index >= 0 ? index + 1 : 999;
 }
 
+function legUsesMarketSignals(leg: LegAnalysis): boolean {
+  return leg.horses.some((horse) => horse.valueEdgePct != null || horse.marketRank != null);
+}
+
+function tempoTripBonus(horse: LegAnalysis["horses"][number]): number {
+  const score = horse.tempoTripScore ?? 0.5;
+  const styleBonus =
+    horse.tempoTripStyle === "versatile" ? 2.5 : horse.tempoTripStyle === "front" || horse.tempoTripStyle === "closer" ? 1.5 : 0;
+  return Math.max(-4, (score - 0.5) * 16 + styleBonus);
+}
+
+function gallopRiskPenalty(horse: LegAnalysis["horses"][number]): number {
+  const score = horse.gallopRiskScore ?? 0.5;
+  const levelPenalty =
+    horse.gallopRiskLevel === "hög" ? 6 : horse.gallopRiskLevel === "medel" ? 2 : 0;
+  return Math.max(0, (0.62 - score) * 22 + levelPenalty);
+}
+
 function valueEdgeSignal(horse: LegAnalysis["horses"][number]): number {
   if (horse.valueEdgePct != null) return horse.valueEdgePct;
-  if (horse.valueScore != null && horse.valueScore > 0) {
+  if (horse.valueScore != null && horse.valueScore > 0 && horse.valueScore <= 3) {
     return (horse.valueScore - 1) * 10;
   }
-  return 0;
+  const estimatedWinPct = horse.estimatedWinPct ?? (horse.combinedScore ?? 0) * 100;
+  const horseLean = Math.max(0, ((horse.horseScore ?? horse.combinedScore ?? 0) - (horse.driverScore ?? 0)) * 20);
+  const formBonus =
+    horse.formTrend === "toppad" ? 4 : horse.formTrend === "stigande" ? 2 : horse.formTrend === "nedåtgående" ? -5 : 0;
+  return estimatedWinPct * 0.35 + (horse.combinedScore ?? 0) * 25 + horseLean + formBonus + tempoTripBonus(horse) - gallopRiskPenalty(horse) * 0.45;
 }
 
 function scoreModelSpikeLeg(leg: LegAnalysis): number {
   const top = topModelHorse(leg);
   const second = secondModelHorse(leg);
   const gap = Math.max(0, (top?.combinedScore ?? 0) - (second?.combinedScore ?? 0));
-  let score = (top?.combinedScore ?? 0) * 100 + gap * 120 + (top?.betDistribution ?? 0) * 0.5;
+  const usesMarket = legUsesMarketSignals(leg);
+  let score =
+    (top?.combinedScore ?? 0) * 100 +
+    gap * 120 +
+    (usesMarket ? (top?.betDistribution ?? 0) * 0.5 : 0) -
+    gallopRiskPenalty(top ?? leg.favorite) * 3.5 +
+    tempoTripBonus(top ?? leg.favorite) * 1.8;
   if (leg.recommendation === "spik") score += 60;
-  if (top?.number === leg.favorite.number) score += 12;
+  if (usesMarket) {
+    if (top?.number === leg.favorite.number) score += 12;
+  } else if (top?.formTrend === "stigande" || top?.formTrend === "toppad") {
+    score += 10;
+  }
   return score;
 }
 
 function scoreValueSpikeHorse(leg: LegAnalysis, horse: LegAnalysis["horses"][number]): number {
-  const bd = horse.betDistribution ?? 0;
-  const edge = valueEdgeSignal(horse);
+  const usesMarket = legUsesMarketSignals(leg);
+  if (usesMarket) {
+    const bd = horse.betDistribution ?? 0;
+    const edge = valueEdgeSignal(horse);
+    const rank = modelRankOfHorse(leg, horse.number);
+    const modelTop = topModelHorse(leg);
+    const gapToTop = Math.max(0, (modelTop?.combinedScore ?? 0) - (horse.combinedScore ?? 0));
+    const rankBonus = rank === 1 ? 8 : rank === 2 ? 3 : -10;
+    const bdPenalty = Math.abs(bd - 14) * 0.6;
+    const longshotPenalty = bd > 0 && bd < 6 ? 20 : 0;
+    const favoritePenalty = horse.number === leg.favorite.number ? 100 : 0;
+    return (
+      (horse.combinedScore ?? 0) * 100 +
+      edge * 2.5 +
+      (horse.estimatedWinPct ?? 0) -
+      gapToTop * 100 +
+      rankBonus -
+      bdPenalty -
+      longshotPenalty -
+      favoritePenalty
+    );
+  }
+
   const rank = modelRankOfHorse(leg, horse.number);
   const modelTop = topModelHorse(leg);
   const gapToTop = Math.max(0, (modelTop?.combinedScore ?? 0) - (horse.combinedScore ?? 0));
-  const rankBonus = rank === 1 ? 8 : rank === 2 ? 3 : -10;
-  const bdPenalty = Math.abs(bd - 14) * 0.6;
-  const longshotPenalty = bd > 0 && bd < 6 ? 20 : 0;
-  const favoritePenalty = horse.number === leg.favorite.number ? 100 : 0;
+  const rankBonus = rank === 2 ? 12 : rank === 3 ? 5 : -8;
+  const formBonus =
+    horse.formTrend === "toppad" ? 8 : horse.formTrend === "stigande" ? 5 : horse.formTrend === "nedåtgående" ? -15 : 0;
   return (
     (horse.combinedScore ?? 0) * 100 +
-    edge * 2.5 +
-    (horse.estimatedWinPct ?? 0) -
+    valueEdgeSignal(horse) * 1.6 +
+    (horse.estimatedWinPct ?? 0) * 0.8 -
     gapToTop * 100 +
     rankBonus -
-    bdPenalty -
-    longshotPenalty -
-    favoritePenalty
+    Math.max(0, gapToTop - 0.08) * 140 +
+    formBonus
   );
 }
 
 function pickValueSpikeHorse(leg: LegAnalysis) {
-  const hasMarketData = leg.horses.some((horse) => horse.betDistribution > 0);
-
-  if (!hasMarketData) {
-    const modelTop = topModelHorse(leg);
-    const second = secondModelHorse(leg);
-    if (modelTop && modelTop.number !== leg.favorite.number && (modelTop.combinedScore ?? 0) >= 0.62) {
-      return modelTop;
+  const usesMarket = legUsesMarketSignals(leg);
+  if (usesMarket) {
+    const hasMarketData = leg.horses.some((horse) => horse.betDistribution > 0);
+    if (!hasMarketData) {
+      const modelTop = topModelHorse(leg);
+      const second = secondModelHorse(leg);
+      if (modelTop && modelTop.number !== leg.favorite.number && (modelTop.combinedScore ?? 0) >= 0.62) {
+        return modelTop;
+      }
+      if (second && (second.combinedScore ?? 0) >= 0.6) return second;
+      return null;
     }
-    if (second && (second.combinedScore ?? 0) >= 0.6) return second;
+
+    const candidates = leg.horses.filter(
+      (horse) =>
+        horse.number !== leg.favorite.number &&
+        horse.betDistribution >= 6 &&
+        horse.betDistribution <= 32 &&
+        horse.combinedScore >= 0.52 &&
+        valueEdgeSignal(horse) >= 1 &&
+        modelRankOfHorse(leg, horse.number) <= 2 &&
+        Math.max(0, (topModelHorse(leg)?.combinedScore ?? 0) - (horse.combinedScore ?? 0)) <= 0.12,
+    );
+    if (candidates.length) {
+      return [...candidates].sort((a, b) => scoreValueSpikeHorse(leg, b) - scoreValueSpikeHorse(leg, a))[0];
+    }
+
+    const softerCandidates = leg.horses.filter(
+      (horse) =>
+        horse.number !== leg.favorite.number &&
+        horse.betDistribution >= 6 &&
+        horse.betDistribution <= 20 &&
+        horse.combinedScore >= 0.56 &&
+        valueEdgeSignal(horse) >= 1 &&
+        modelRankOfHorse(leg, horse.number) <= 2,
+    );
+    if (softerCandidates.length) {
+      return [...softerCandidates].sort((a, b) => scoreValueSpikeHorse(leg, b) - scoreValueSpikeHorse(leg, a))[0];
+    }
+
     return null;
   }
 
   const candidates = leg.horses.filter(
     (horse) =>
-      horse.number !== leg.favorite.number &&
-      horse.betDistribution >= 6 &&
-      horse.betDistribution <= 32 &&
+      horse.number !== topModelHorse(leg)?.number &&
       horse.combinedScore >= 0.52 &&
-      valueEdgeSignal(horse) >= 1 &&
-      modelRankOfHorse(leg, horse.number) <= 2 &&
+      valueEdgeSignal(horse) >= 8 &&
+      modelRankOfHorse(leg, horse.number) <= 3 &&
       Math.max(0, (topModelHorse(leg)?.combinedScore ?? 0) - (horse.combinedScore ?? 0)) <= 0.12,
   );
   if (candidates.length) {
@@ -143,12 +223,10 @@ function pickValueSpikeHorse(leg: LegAnalysis) {
 
   const softerCandidates = leg.horses.filter(
     (horse) =>
-      horse.number !== leg.favorite.number &&
-      horse.betDistribution >= 6 &&
-      horse.betDistribution <= 20 &&
+      horse.number !== topModelHorse(leg)?.number &&
       horse.combinedScore >= 0.56 &&
-      valueEdgeSignal(horse) >= 1 &&
-      modelRankOfHorse(leg, horse.number) <= 2,
+      valueEdgeSignal(horse) >= 7 &&
+      modelRankOfHorse(leg, horse.number) <= 4,
   );
   if (softerCandidates.length) {
     return [...softerCandidates].sort((a, b) => scoreValueSpikeHorse(leg, b) - scoreValueSpikeHorse(leg, a))[0];
@@ -163,22 +241,31 @@ function shouldAllowModelSpike(leg: LegAnalysis): boolean {
   const gap = Math.max(0, (top?.combinedScore ?? 0) - (second?.combinedScore ?? 0));
   const topCombined = top?.combinedScore ?? 0;
   const topBd = top?.betDistribution ?? 0;
+  const usesMarket = legUsesMarketSignals(leg);
+  const topGallopScore = top?.gallopRiskScore ?? 0.5;
+  const secondGallopScore = second?.gallopRiskScore ?? 0.5;
+
+  if (topGallopScore < 0.4 && gap < 0.08 && secondGallopScore >= topGallopScore + 0.18) {
+    return false;
+  }
 
   if (leg.recommendation === "spik") return topCombined >= 0.62;
   if (leg.recommendation === "gardering") {
     return topCombined >= 0.75 && gap >= 0.055;
   }
 
-  return scoreModelSpikeLeg(leg) >= 122 && topCombined >= 0.79 && (gap >= 0.08 || topBd >= 56);
+  return scoreModelSpikeLeg(leg) >= 122 && topCombined >= 0.79 && (gap >= 0.08 || (usesMarket && topBd >= 56));
 }
 
 function shouldAllowValueSpike(leg: LegAnalysis, horse: NonNullable<ReturnType<typeof pickValueSpikeHorse>>): boolean {
   const top = topModelHorse(leg);
   const gapToTop = Math.max(0, (top?.combinedScore ?? 0) - (horse.combinedScore ?? 0));
+  const usesMarket = legUsesMarketSignals(leg);
   return (
     scoreValueSpikeHorse(leg, horse) >= 54 &&
-    (horse.valueEdgePct ?? valueEdgeSignal(horse)) >= 2.5 &&
+    (!usesMarket || (horse.valueEdgePct ?? valueEdgeSignal(horse)) >= 2.5) &&
     (horse.estimatedWinPct ?? 0) >= 10 &&
+    (!usesMarket ? horse.formTrend !== "nedåtgående" : true) &&
     gapToTop <= 0.11
   );
 }
@@ -251,15 +338,22 @@ function horseCoverageScore(leg: LegAnalysis, horse: LegAnalysis["horses"][numbe
   const rank = modelRankOfHorse(leg, horse.number);
   const modelTop = topModelHorse(leg);
   const gapToTop = Math.max(0, (modelTop?.combinedScore ?? 0) - (horse.combinedScore ?? 0));
+  const usesMarket = legUsesMarketSignals(leg);
   let score =
     (horse.combinedScore ?? 0) * 100 +
     (horse.estimatedWinPct ?? (horse.combinedScore ?? 0) * 100) * 0.7 +
     valueEdgeSignal(horse) * 2.2 -
     gapToTop * 100;
+  score += tempoTripBonus(horse) * 1.8;
+  score -= gallopRiskPenalty(horse) * 1.6;
   if (rank === 1) score += 8;
   else if (rank === 2) score += 4;
   else if (rank >= 5) score -= 4;
-  if (horse.betDistribution >= 4 && horse.betDistribution <= 20) score += 4;
+  if (usesMarket) {
+    if (horse.betDistribution >= 4 && horse.betDistribution <= 20) score += 4;
+  } else if (horse.formTrend === "stigande" || horse.formTrend === "toppad") {
+    score += 4;
+  }
   if (leg.skrellSpike?.number === horse.number) score += 5;
   if (leg.recommendation === "bred") score += 8;
   if (horse.formTrend === "nedåtgående") score -= 12;
@@ -285,14 +379,19 @@ function removableCoverageHorse(
 }
 
 function garderingPriority(leg: LegAnalysis): number {
-  const favoriteBd = leg.favorite.betDistribution ?? 0;
   const top = topModelHorse(leg);
   const second = secondModelHorse(leg);
   const modelGap = Math.max(0, (top?.combinedScore ?? 0) - (second?.combinedScore ?? 0));
+  const favoriteBd = leg.favorite.betDistribution ?? 0;
+  const usesMarket = legUsesMarketSignals(leg);
+  const contenderDepth = leg.horses.filter(
+    (horse) => ((top?.estimatedWinPct ?? 0) - (horse.estimatedWinPct ?? 0)) <= 6,
+  ).length;
   let score = leg.recommendation === "bred" ? 30 : 0;
   if (leg.skrellSpike) score += 24;
-  if (favoriteBd > 0) score += Math.max(0, 28 - favoriteBd);
+  if (usesMarket && favoriteBd > 0) score += Math.max(0, 28 - favoriteBd);
   score += Math.min(leg.horses.length, 12);
+  if (!usesMarket) score += contenderDepth * 4;
   score += Math.max(0, 0.12 - modelGap) * 120;
   return score;
 }
@@ -313,9 +412,7 @@ function picksForLeg(
 ): number[] {
   if ((mode === "skrell-spik" || mode === "spik") && fixedNumber != null) return [fixedNumber];
   if (mode === "spik") {
-    const top = [...leg.horses].sort(
-      (a, b) => (b.combinedScore ?? 0) - (a.combinedScore ?? 0),
-    )[0];
+    const top = topModelHorse(leg);
     return [top?.number ?? leg.favorite.number];
   }
 
@@ -344,11 +441,13 @@ function selectedHitProbability(leg: LegAnalysis, picks: number[]): number {
 }
 
 function selectedMarketShare(leg: LegAnalysis, picks: number[]): number {
-  const marketShare = picks.reduce((sum, pick) => {
-    const horse = leg.horses.find((item) => item.number === pick);
-    return sum + ((horse?.betDistribution ?? 0) / 100);
-  }, 0);
-  if (marketShare > 0) return Math.min(0.985, marketShare);
+  if (legUsesMarketSignals(leg)) {
+    const marketShare = picks.reduce((sum, pick) => {
+      const horse = leg.horses.find((item) => item.number === pick);
+      return sum + ((horse?.betDistribution ?? 0) / 100);
+    }, 0);
+    if (marketShare > 0) return Math.min(0.985, marketShare);
+  }
   return selectedHitProbability(leg, picks);
 }
 
@@ -370,24 +469,33 @@ function sumFromIndex(values: number[], startIndex: number): number {
 }
 
 function horseMarketShare(leg: LegAnalysis, horseNumber: number): number {
-  const horse = leg.horses.find((item) => item.number === horseNumber);
-  if (!horse) return 0;
-  if (horse.betDistribution > 0) return Math.max(0.0005, horse.betDistribution / 100);
+  if (legUsesMarketSignals(leg)) {
+    const horse = leg.horses.find((item) => item.number === horseNumber);
+    if (!horse) return 0;
+    if (horse.betDistribution > 0) return Math.max(0.0005, horse.betDistribution / 100);
+  }
   return estimatedHorseWinShare(leg, horseNumber);
 }
 
 function ddHorseSelectionScore(leg: LegAnalysis, horse: LegAnalysis["horses"][number]): number {
   const estimatedWinPct = horse.estimatedWinPct ?? estimatedHorseWinShare(leg, horse.number) * 100;
   const modelRank = modelRankOfHorse(leg, horse.number);
+  const usesMarket = legUsesMarketSignals(leg);
   let score =
     estimatedWinPct * 1.8 +
     (horse.combinedScore ?? 0) * 100 +
     valueEdgeSignal(horse) * 3.1;
+  score += tempoTripBonus(horse) * 2;
+  score -= gallopRiskPenalty(horse) * 2.2;
   if (modelRank === 1) score += 14;
   else if (modelRank === 2) score += 7;
-  if (horse.number === leg.favorite.number) score += 4;
+  if (usesMarket && horse.number === leg.favorite.number) score += 4;
   if (horse.number === leg.skrellSpike?.number) score += 5;
-  if (horse.betDistribution > 0 && horse.betDistribution < 4) score -= 18;
+  if (usesMarket) {
+    if (horse.betDistribution > 0 && horse.betDistribution < 4) score -= 18;
+  } else if (horse.formTrend === "stigande" || horse.formTrend === "toppad") {
+    score += 5;
+  }
   if (estimatedWinPct < 8) score -= 20;
   if (horse.formTrend === "nedåtgående") score -= 12;
   return score;
@@ -402,15 +510,16 @@ function ddCoverageOrder(leg: LegAnalysis, forceSkrell = false): number[] {
 function buildDdSelection(leg: LegAnalysis, picks: number[]): SystemSelection {
   if (picks.length === 1) {
     const horse = leg.horses.find((item) => item.number === picks[0]) ?? leg.favorite;
+    const usesMarket = legUsesMarketSignals(leg);
     if (leg.skrellSpike?.number === horse.number) {
       return {
         leg: leg.leg,
         picks,
         type: "skrell-spik",
         note:
-          horse.betDistribution > 0
+          usesMarket && horse.betDistribution > 0
             ? `DD-värdespik: ${horse.name} (${horse.betDistribution.toFixed(1)}%)`
-            : `DD-värdespik: ${horse.name}`,
+            : `DD-alternativ spik: ${horse.name}`,
       };
     }
 
@@ -419,7 +528,7 @@ function buildDdSelection(leg: LegAnalysis, picks: number[]): SystemSelection {
       picks,
       type: "spik",
       note:
-        horse.betDistribution > 0
+        usesMarket && horse.betDistribution > 0
           ? `DD-spik: ${horse.name} (${horse.betDistribution.toFixed(1)}%)`
           : `DD-spik: ${horse.name}`,
     };
@@ -464,10 +573,6 @@ function evaluateDdSystem(
     const leg = legs.find((item) => item.leg === selection.leg);
     return leg ? selectedHitProbability(leg, selection.picks) : 0;
   });
-  const legMarketShares = selections.map((selection) => {
-    const leg = legs.find((item) => item.leg === selection.leg);
-    return leg ? selectedMarketShare(leg, selection.picks) : 0;
-  });
   const hitProbability = legHitProbabilities.reduce((productValue, value) => productValue * value, 1);
 
   const firstSelection = selections[0];
@@ -487,16 +592,15 @@ function evaluateDdSystem(
         const firstMarketShare = horseMarketShare(firstLeg, firstPick);
         const secondMarketShare = horseMarketShare(secondLeg, secondPick);
         const comboProbability = firstProbability * secondProbability;
-        const comboMarketShare = Math.max(0.00025, firstMarketShare * secondMarketShare);
-        const comboEdge = comboProbability / comboMarketShare;
+        const comboMarketShare = Math.max(0.0001, firstMarketShare * secondMarketShare);
+        const comboEdge = comboProbability - comboMarketShare;
+        const comboDifficulty = -Math.log(Math.min(0.99, Math.max(0.00025, comboMarketShare)));
 
-        comboEdgeScore += comboProbability * Math.min(4.5, comboEdge);
-        comboPayoutScore += comboProbability * -Math.log(Math.min(0.99, comboMarketShare));
+        comboEdgeScore += comboProbability * comboEdge;
+        comboPayoutScore += comboProbability * comboDifficulty;
 
         if (firstProbability < 0.09) longshotRisk += comboProbability * 0.7;
         if (secondProbability < 0.09) longshotRisk += comboProbability * 0.7;
-        if (firstMarketShare < 0.05) longshotRisk += comboProbability * 0.35;
-        if (secondMarketShare < 0.05) longshotRisk += comboProbability * 0.35;
       }
     }
   }
@@ -504,10 +608,12 @@ function evaluateDdSystem(
   const normalizedComboEdge = hitProbability > 0 ? comboEdgeScore / hitProbability : 0;
   const normalizedPayoutPotential = hitProbability > 0 ? comboPayoutScore / hitProbability : 0;
   const averageLegEdge =
-    legHitProbabilities.reduce(
-      (sum, value, index) => sum + (value - (legMarketShares[index] ?? 0)),
-      0,
-    ) / Math.max(1, legHitProbabilities.length);
+    selections.reduce((sum, selection, index) => {
+      const leg = legs.find((item) => item.leg === selection.leg);
+      if (!leg) return sum;
+      return sum + ((legHitProbabilities[index] ?? 0) - selectedMarketShare(leg, selection.picks));
+    }, 0) /
+    Math.max(1, legHitProbabilities.length);
   const asymmetryPenalty = ddAsymmetryPenalty(selections, legHitProbabilities);
   const stability =
     legHitProbabilities.reduce((sum, value) => sum + value, 0) / Math.max(1, legHitProbabilities.length) -
@@ -517,7 +623,7 @@ function evaluateDdSystem(
 
   return {
     hitProbability,
-    averageEdge: averageLegEdge + Math.max(0, normalizedComboEdge - 1) * 0.1,
+    averageEdge: averageLegEdge + normalizedComboEdge * 0.03,
     payoutPotential: normalizedPayoutPotential * payoutTargetFactor,
     budgetUsage: system.costKr / Math.max(1, options.budgetKr),
     longshotRisk,
@@ -565,19 +671,32 @@ function flexibleGuardMaxCount(leg: LegAnalysis): number {
 
 function safeMainPoolHorseScore(leg: LegAnalysis, horse: LegAnalysis["horses"][number]): number {
   const estimatedWinPct = horse.estimatedWinPct ?? estimatedHorseWinShare(leg, horse.number) * 100;
+  const usesMarket = legUsesMarketSignals(leg);
   const marketShare = horse.betDistribution ?? 0;
-  const edge = valueEdgeSignal(horse);
   return (
     estimatedWinPct * 1.15 +
-    marketShare * 0.42 +
+    (usesMarket ? marketShare * 0.42 : 0) +
     (horse.combinedScore ?? 0) * 42 +
-    Math.max(0, edge) * 1.4 -
-    Math.max(0, -edge) * 1.1
+    valueEdgeSignal(horse) * 1.4 -
+    gallopRiskPenalty(horse) * 1.8 +
+    tempoTripBonus(horse) * 1.6 +
+    (usesMarket ? Math.max(0, -valueEdgeSignal(horse)) * 1.1 : 0) +
+    (!usesMarket && (horse.formTrend === "stigande" || horse.formTrend === "toppad") ? 4 : 0)
   );
 }
 
 function preferredMainPoolSpikeHorse(leg: LegAnalysis) {
-  return topModelHorse(leg);
+  const top = topModelHorse(leg);
+  const saferAlternative = rankedHorses(leg).find((horse) => {
+    if (horse.number === top.number) return false;
+    const gap = Math.max(0, (top.combinedScore ?? 0) - (horse.combinedScore ?? 0));
+    return (
+      gap <= 0.05 &&
+      (horse.gallopRiskScore ?? 0.5) >= (top.gallopRiskScore ?? 0.5) + 0.18 &&
+      safeMainPoolHorseScore(leg, horse) >= safeMainPoolHorseScore(leg, top) - 2
+    );
+  });
+  return saferAlternative ?? top;
 }
 
 function mainPoolCoverageOrder(leg: LegAnalysis): number[] {
@@ -589,15 +708,16 @@ function selectionNoteForLeg(
   picks: number[],
   type: SystemSelection["type"],
 ): string {
+  const usesMarket = legUsesMarketSignals(leg);
   if (type === "skrell-spik") {
     const horse = leg.horses.find((item) => item.number === picks[0]) ?? leg.skrellSpike ?? leg.favorite;
-    return horse.betDistribution > 0
+    return usesMarket && horse.betDistribution > 0
       ? `Värdespik från rank: ${horse.name} (${horse.betDistribution.toFixed(1)}%)`
-      : `Värdespik från rank: ${horse.name}`;
+      : `Alternativ spik från rank: ${horse.name}`;
   }
   if (type === "spik") {
     const horse = leg.horses.find((item) => item.number === picks[0]) ?? topModelHorse(leg);
-    return horse.betDistribution > 0
+    return usesMarket && horse.betDistribution > 0
       ? `Modellspik från rank: ${horse.name} (${horse.betDistribution.toFixed(1)}%)`
       : `Modellspik från rank: ${horse.name}`;
   }
@@ -641,6 +761,7 @@ function buildMainPoolLegOptions(
   const seen = new Set<string>();
   const openness = leg.opennessScore ?? 0.5;
   const bankability = leg.bankabilityScore ?? 0.5;
+  const usesMarket = legUsesMarketSignals(leg);
 
   const pushOption = (picks: number[], type: SystemSelection["type"]) => {
     const normalizedPicks = picks.filter((pick, index) => picks.indexOf(pick) === index);
@@ -653,6 +774,7 @@ function buildMainPoolLegOptions(
     const marketShare = selectedMarketShare(leg, normalizedPicks);
     const antiCrowd = -Math.log(Math.min(0.985, Math.max(0.03, marketShare)));
     const edge = hitProbability - marketShare;
+    const modelDifficulty = -Math.log(Math.min(0.985, Math.max(0.03, hitProbability)));
     const spikeHorse =
       normalizedPicks.length === 1
         ? leg.horses.find((horse) => horse.number === normalizedPicks[0]) ?? null
@@ -667,17 +789,25 @@ function buildMainPoolLegOptions(
       type === "spik"
         ? bankability * 18 + hitProbability * 12
         : type === "skrell-spik"
-          ? Math.max(0, edge) * 18 +
-            Math.max(0, spikeWinPct - 12) * 0.8 -
-            Math.max(0, 14 - spikeWinPct) * 4 -
-            Math.max(0, 5 - spikeBd) * 4
+          ? usesMarket
+            ? Math.max(0, edge) * 18 +
+              Math.max(0, spikeWinPct - 12) * 0.8 -
+              Math.max(0, 14 - spikeWinPct) * 4 -
+              Math.max(0, 5 - spikeBd) * 4
+            : valueEdgeSignal(spikeHorse ?? leg.favorite) * 1.3 +
+              Math.max(0, spikeWinPct - 12) * 0.8 -
+              Math.max(0, 14 - spikeWinPct) * 4
           : 0;
     const spikeRiskPenalty =
       spikeHorse == null
         ? 0
         : type === "spik"
-          ? Math.max(0, 22 - spikeWinPct) * 6 + (spikeBd > 0 ? Math.max(0, 15 - spikeBd) * 4 : 0)
-          : Math.max(0, 16 - spikeWinPct) * 4 + (spikeBd > 0 ? Math.max(0, 8 - spikeBd) * 3.5 : 0);
+          ? Math.max(0, 22 - spikeWinPct) * 6 +
+            gallopRiskPenalty(spikeHorse) * 8 +
+            (usesMarket && spikeBd > 0 ? Math.max(0, 15 - spikeBd) * 4 : 0)
+          : Math.max(0, 16 - spikeWinPct) * 4 +
+            gallopRiskPenalty(spikeHorse) * 5 +
+            (usesMarket && spikeBd > 0 ? Math.max(0, 8 - spikeBd) * 3.5 : 0);
     const structuralSpikePenalty =
       spikeHorse == null
         ? 0
@@ -694,9 +824,10 @@ function buildMainPoolLegOptions(
       },
       rowFactor: normalizedPicks.length,
       localScore:
-        hitProbability * 175 +
-        edge * 54 +
-        antiCrowd * (type === "gardering" ? 7 + openness * 3 : 4) +
+        hitProbability * (usesMarket ? 175 : 190) +
+        (usesMarket
+          ? edge * 54 + antiCrowd * (type === "gardering" ? 7 + openness * 3 : 4)
+          : modelDifficulty * (type === "gardering" ? 6 + openness * 2.5 : 3)) +
         spikeBonus -
         coveragePenalty -
         spikeRiskPenalty -
@@ -790,6 +921,7 @@ function evaluateMainPoolSystem(
   const probabilities: number[] = [];
   const marketShares: number[] = [];
   const legEdges: number[] = [];
+  const modelDifficulties: number[] = [];
 
   for (const selection of system.selections) {
     const leg = legs.find((item) => item.leg === selection.leg);
@@ -799,6 +931,7 @@ function evaluateMainPoolSystem(
     probabilities.push(hitProbability);
     marketShares.push(marketShare);
     legEdges.push(hitProbability - marketShare);
+    modelDifficulties.push(-Math.log(Math.min(0.985, Math.max(0.03, hitProbability))));
   }
 
   const hitDistribution = poissonBinomialDistribution(probabilities);
@@ -812,12 +945,15 @@ function evaluateMainPoolSystem(
   const antiCrowdScore =
     marketShares.reduce((sum, share) => sum + -Math.log(Math.min(0.985, Math.max(0.03, share))), 0) /
     Math.max(1, marketShares.length);
+  const modelDifficultyScore =
+    modelDifficulties.reduce((sum, value) => sum + value, 0) / Math.max(1, modelDifficulties.length);
   const spikeSelections = system.selections.filter((selection) => selection.type !== "gardering");
-  const spikeMarketPressure =
+  const usesMarket = legs.some(legUsesMarketSignals);
+  const spikeDifficultyPressure =
     spikeSelections.reduce((sum, selection) => {
       const leg = legs.find((item) => item.leg === selection.leg);
       if (!leg) return sum;
-      return sum + Math.max(0, 0.28 - selectedMarketShare(leg, selection.picks));
+      return sum + Math.max(0, 0.28 - (usesMarket ? selectedMarketShare(leg, selection.picks) : selectedHitProbability(leg, selection.picks)));
     }, 0) / Math.max(1, spikeSelections.length || 1);
 
   return {
@@ -827,8 +963,12 @@ function evaluateMainPoolSystem(
     probabilitySixPlus: sumFromIndex(hitDistribution, Math.max(0, totalLegs - 2)),
     probabilitySevenPlus: sumFromIndex(hitDistribution, Math.max(0, totalLegs - 1)),
     probabilityFull: hitDistribution[totalLegs] ?? 0,
-    averageEdge: legEdges.reduce((sum, value) => sum + value, 0) / Math.max(1, legEdges.length),
-    payoutPotential: antiCrowdScore * 0.65 + spikeMarketPressure * (1.8 * payoutTargetFactor),
+    averageEdge: usesMarket
+      ? legEdges.reduce((sum, value) => sum + value, 0) / Math.max(1, legEdges.length)
+      : averageProbability,
+    payoutPotential: usesMarket
+      ? antiCrowdScore * 0.65 + spikeDifficultyPressure * (1.8 * payoutTargetFactor)
+      : modelDifficultyScore * 0.65 + spikeDifficultyPressure * (1.8 * payoutTargetFactor),
     budgetUsage: system.costKr / Math.max(1, options.budgetKr),
     spikeCount: spikeSelections.length,
     coverageBalance: Math.max(0, 1 - Math.sqrt(probabilityVariance) / 0.24),
@@ -862,6 +1002,7 @@ function mainPoolCandidateScore(
   stateLocalScore = 0,
 ): number {
   const metrics = evaluateMainPoolSystem(legs, candidate, options);
+  const usesMarket = legs.some(legUsesMarketSignals);
   const underusePenalty = Math.max(0, 0.86 - metrics.budgetUsage) * 175;
   const spikeOverloadPenalty = Math.max(0, metrics.spikeCount - 5) * 8;
   const riskySinglePickPenalty = candidate.selections.reduce((sum, selection) => {
@@ -875,7 +1016,9 @@ function mainPoolCandidateScore(
     return (
       sum +
       Math.max(0, 20 - winPct) * 8 +
-      (market > 0 ? Math.max(0, 12 - market) * 5 : 0) +
+      (usesMarket && market > 0 ? Math.max(0, 12 - market) * 5 : 0) +
+      gallopRiskPenalty(horse) * 12 -
+      Math.max(0, tempoTripBonus(horse)) * 1.5 +
       Math.max(0, 0.7 - bankability) * 60
     );
   }, 0);
@@ -897,19 +1040,39 @@ function mainPoolCandidateScore(
 function opennessScore(legs: LegAnalysis[]): number {
   if (legs.length === 0) return 0;
   const openLegs = legs.filter((leg) => leg.recommendation === "bred").length;
-  const valueLegs = legs.filter((leg) => leg.skrellSpike != null).length;
-  const lowFavoriteLegs = legs.filter((leg) => (leg.favorite.betDistribution ?? 0) > 0 && (leg.favorite.betDistribution ?? 0) < 30).length;
-  const avgFavoriteShare =
-    legs.reduce((sum, leg) => sum + Math.min(60, Math.max(0, leg.favorite.betDistribution ?? 0)), 0) /
+  const usesMarket = legs.some(legUsesMarketSignals);
+  if (usesMarket) {
+    const valueLegs = legs.filter((leg) => leg.skrellSpike != null).length;
+    const lowFavoriteLegs = legs.filter(
+      (leg) => (leg.favorite.betDistribution ?? 0) > 0 && (leg.favorite.betDistribution ?? 0) < 30,
+    ).length;
+    const avgFavoriteShare =
+      legs.reduce((sum, leg) => sum + Math.min(60, Math.max(0, leg.favorite.betDistribution ?? 0)), 0) /
+      legs.length;
+    return Math.max(
+      0,
+      Math.min(
+        1,
+        openLegs / legs.length * 0.45 +
+          valueLegs / legs.length * 0.25 +
+          lowFavoriteLegs / legs.length * 0.15 +
+          Math.max(0, 34 - avgFavoriteShare) / 34 * 0.15,
+      ),
+    );
+  }
+  const alternateSpikeLegs = legs.filter((leg) => leg.skrellSpike != null).length;
+  const lowBankLegs = legs.filter((leg) => (leg.bankabilityScore ?? 0) < 0.58).length;
+  const avgBankability =
+    legs.reduce((sum, leg) => sum + Math.min(1, Math.max(0, leg.bankabilityScore ?? 0.5)), 0) /
     legs.length;
   return Math.max(
     0,
     Math.min(
       1,
       openLegs / legs.length * 0.45 +
-        valueLegs / legs.length * 0.25 +
-        lowFavoriteLegs / legs.length * 0.15 +
-        Math.max(0, 34 - avgFavoriteShare) / 34 * 0.15,
+        alternateSpikeLegs / legs.length * 0.25 +
+        lowBankLegs / legs.length * 0.15 +
+        Math.max(0, 0.68 - avgBankability) / 0.68 * 0.15,
     ),
   );
 }
@@ -1188,21 +1351,19 @@ function buildCandidateSystem(
       fixedNumber =
         forcedSpike?.number ?? leg.skrellSpike?.number ?? leg.favorite.number;
       const skrellHorse = leg.horses.find((horse) => horse.number === fixedNumber) ?? leg.skrellSpike ?? leg.favorite;
-      note =
-        skrellHorse.betDistribution > 0
-          ? skrellHorse.betDistribution <= 10
-            ? `Skräll-spik: ${skrellHorse.name} (${skrellHorse.betDistribution.toFixed(1)}% av spelet)`
-            : `Värdespik: ${skrellHorse.name} (${skrellHorse.betDistribution.toFixed(1)}% av spelet)`
-          : `Värdespik: ${skrellHorse.name} (spelprocent saknas ännu)`;
+      note = legUsesMarketSignals(leg) && skrellHorse.betDistribution > 0
+        ? skrellHorse.betDistribution <= 10
+          ? `Skräll-spik: ${skrellHorse.name} (${skrellHorse.betDistribution.toFixed(1)}% av spelet)`
+          : `Värdespik: ${skrellHorse.name} (${skrellHorse.betDistribution.toFixed(1)}% av spelet)`
+        : `Alternativ spik: ${skrellHorse.name}`;
     } else if (forcedSpike?.type === "spik" || (!isMainPool && leg.recommendation === "spik")) {
       mode = "spik";
       const favoriteHorse = topModelHorse(leg);
       fixedNumber = forcedSpike?.number ?? favoriteHorse.number;
       const spikeHorse = leg.horses.find((horse) => horse.number === fixedNumber) ?? favoriteHorse;
-      note =
-        spikeHorse.betDistribution > 0
-          ? `Modellspik: ${spikeHorse.name} (${spikeHorse.betDistribution.toFixed(1)}%)`
-          : `Modellspik: ${spikeHorse.name} (spelprocent saknas ännu)`;
+      note = legUsesMarketSignals(leg) && spikeHorse.betDistribution > 0
+        ? `Modellspik: ${spikeHorse.name} (${spikeHorse.betDistribution.toFixed(1)}%)`
+        : `Modellspik: ${spikeHorse.name}`;
     } else if (leg.recommendation === "bred") {
       mode = "gardering";
       note = leg.skrellSpike ? "Öppet lopp – bred gardering med skrällskydd" : "Öppet lopp – bred gardering";

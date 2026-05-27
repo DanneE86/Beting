@@ -14,6 +14,40 @@ function parsePlacement(sortValue?: number, display?: string): number | null {
   return sortValue;
 }
 
+function normalizeResultCode(display?: string): string {
+  return String(display ?? "").trim().toLowerCase();
+}
+
+function rowGalloped(resultCode: string): boolean {
+  if (!resultCode) return false;
+  return /\bg\b/.test(resultCode) || resultCode.includes("dg") || resultCode.includes("dgm") || resultCode.includes("galopp");
+}
+
+function rowDisqualified(resultCode: string): boolean {
+  if (!resultCode) return false;
+  return resultCode === "d" || resultCode.startsWith("dg") || resultCode.startsWith("dist") || resultCode.includes("disk");
+}
+
+function buildTripComment(
+  placement: number | null,
+  startPosition: number | null,
+  resultCode: string,
+  withdrawn: boolean,
+): string {
+  if (withdrawn || resultCode.startsWith("str")) return "struken";
+  if (rowDisqualified(resultCode)) return "diskvalificerad i loppet";
+  if (rowGalloped(resultCode)) return "galopp i loppet";
+  if (placement == null || placement <= 0) return "okänd resa";
+
+  const fromBack = (startPosition ?? 0) >= 8;
+  const fromFront = (startPosition ?? 99) <= 4;
+  if (placement <= 3 && fromBack) return "stark avslutning bakifrån";
+  if (placement <= 3 && fromFront) return "bra resa i främre träffen";
+  if (placement >= 7 && fromFront) return "tuff resa i främre träffen";
+  if (placement >= 7 && fromBack) return "svag avslutning bakifrån";
+  return "jämn resa";
+}
+
 export function parseResultRow(raw: Record<string, unknown>): TravsportStartRow | null {
   const ri = raw.raceInformation as Record<string, unknown> | undefined;
   if (!ri?.date) return null;
@@ -28,6 +62,8 @@ export function parseResultRow(raw: Record<string, unknown>): TravsportStartRow 
   const driver = raw.driver as { id?: number; name?: string } | undefined;
   const trainer = raw.trainer as { id?: number; name?: string } | undefined;
   const shoes = (raw.equipmentOptions as { shoeOptions?: { code?: string } })?.shoeOptions;
+  const placementDisplay = String((raw.placement as { displayValue?: string })?.displayValue ?? "");
+  const resultCode = normalizeResultCode(placementDisplay);
 
   return {
     date: String(ri.date),
@@ -35,7 +71,8 @@ export function parseResultRow(raw: Record<string, unknown>): TravsportStartRow 
     trackCode: String(raw.trackCode ?? ""),
     raceNumber: Number(ri.raceNumber ?? 0),
     placement,
-    placementDisplay: String((raw.placement as { displayValue?: string })?.displayValue ?? ""),
+    placementDisplay,
+    resultCode,
     kmTime: kmDisplay ?? null,
     kmTimeSeconds: parseKmTime(kmDisplay, kmSort),
     startPosition: Number((raw.startPosition as { sortValue?: number })?.sortValue ?? 0) || null,
@@ -49,6 +86,14 @@ export function parseResultRow(raw: Record<string, unknown>): TravsportStartRow 
     odds: String((raw.odds as { displayValue?: string })?.displayValue ?? ""),
     shoeCode: shoes?.code ?? "",
     withdrawn: Boolean(raw.withdrawn),
+    galloped: rowGalloped(resultCode),
+    disqualified: rowDisqualified(resultCode),
+    tripComment: buildTripComment(
+      placement,
+      Number((raw.startPosition as { sortValue?: number })?.sortValue ?? 0) || null,
+      resultCode,
+      Boolean(raw.withdrawn),
+    ),
   };
 }
 
@@ -73,6 +118,116 @@ function daysSince(dateIso: string): number {
   return Math.floor((now.getTime() - d.getTime()) / 86400000);
 }
 
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function scoreFromPlacings(placings: number[]): number {
+  if (!placings.length) return 0.5;
+  const wins = placings.filter((p) => p === 1).length;
+  const top3 = placings.filter((p) => p <= 3).length;
+  const avgPlacement = placings.reduce((sum, p) => sum + p, 0) / placings.length;
+  return clamp01(0.25 + (wins / placings.length) * 0.35 + (top3 / placings.length) * 0.2 + Math.max(0, 1 - (avgPlacement - 1) / 8) * 0.2);
+}
+
+function buildTempoTripProfile(starts: TravsportStartRow[]) {
+  const completed = starts.filter(
+    (row) => !row.withdrawn && !row.resultCode.startsWith("str") && row.placement != null && row.placement > 0,
+  );
+  const sample = completed.slice(0, 12);
+  if (sample.length === 0) {
+    return {
+      sampleSize: 0,
+      earlySpeedScore: 0.5,
+      closingSpeedScore: 0.5,
+      versatilityScore: 0.5,
+      profileScore: 0.5,
+      style: "okänd" as const,
+      note: "Ingen tydlig tempo/trip-historik ännu",
+    };
+  }
+
+  const frontRows = sample.filter((row) => (row.startPosition ?? 99) <= 4);
+  const backRows = sample.filter((row) => (row.startPosition ?? 0) >= 8);
+  const frontPlacings = frontRows.map((row) => row.placement!).filter((p) => p > 0);
+  const backPlacings = backRows.map((row) => row.placement!).filter((p) => p > 0);
+
+  const earlySpeedScore = frontPlacings.length > 0 ? scoreFromPlacings(frontPlacings) : 0.5;
+  const closingSpeedScore = backPlacings.length > 0 ? scoreFromPlacings(backPlacings) : 0.5;
+  const versatilityScore = clamp01(0.35 + Math.min(earlySpeedScore, closingSpeedScore) * 0.65);
+  const profileScore = clamp01(earlySpeedScore * 0.4 + closingSpeedScore * 0.35 + versatilityScore * 0.25);
+
+  const style =
+    earlySpeedScore >= 0.68 && earlySpeedScore - closingSpeedScore >= 0.08
+      ? ("front" as const)
+      : closingSpeedScore >= 0.68 && closingSpeedScore - earlySpeedScore >= 0.08
+        ? ("closer" as const)
+        : sample.length >= 4
+          ? ("versatile" as const)
+          : ("okänd" as const);
+
+  const note =
+    style === "front"
+      ? `Tidig ledarprofil: ${frontPlacings.length} relevanta framspårsstarter`
+      : style === "closer"
+        ? `Bakifrånprofil: ${backPlacings.length} relevanta bakspårsstarter`
+        : style === "versatile"
+          ? `Allround tripprofil över ${sample.length} starter`
+          : `Begränsad tempo/trip-data (${sample.length} starter)`;
+
+  return {
+    sampleSize: sample.length,
+    earlySpeedScore,
+    closingSpeedScore,
+    versatilityScore,
+    profileScore,
+    style,
+    note,
+  };
+}
+
+function buildGallopProfile(starts: TravsportStartRow[]) {
+  const sample = starts
+    .filter((row) => !row.withdrawn && !row.resultCode.startsWith("str"))
+    .filter((row) => row.placement != null || row.galloped || row.disqualified || row.resultCode === "0")
+    .slice(0, 12);
+  if (sample.length === 0) {
+    return {
+      sampleSize: 0,
+      gallopStarts: 0,
+      gallopRate: 0,
+      recentGallopRate: 0,
+      stabilityScore: 0.5,
+      riskLevel: "medel" as const,
+      note: "Ingen galopphistorik ännu",
+    };
+  }
+
+  const recent = sample.slice(0, 5);
+  const gallopStarts = sample.filter((row) => row.galloped || row.disqualified).length;
+  const gallopRate = gallopStarts / sample.length;
+  const recentGallopRate = recent.length
+    ? recent.filter((row) => row.galloped || row.disqualified).length / recent.length
+    : gallopRate;
+  const stabilityScore = clamp01(1 - (gallopRate * 0.6 + recentGallopRate * 0.4));
+  const riskLevel =
+    recentGallopRate >= 0.34 || gallopRate >= 0.3
+      ? ("hög" as const)
+      : recentGallopRate >= 0.18 || gallopRate >= 0.14
+        ? ("medel" as const)
+        : ("låg" as const);
+
+  return {
+    sampleSize: sample.length,
+    gallopStarts,
+    gallopRate,
+    recentGallopRate,
+    stabilityScore,
+    riskLevel,
+    note: `${gallopStarts}/${sample.length} starter med galopp/disk (${Math.round(gallopRate * 100)}%)`,
+  };
+}
+
 export function buildHorseProfile(
   horseId: number,
   rawRows: unknown[],
@@ -94,6 +249,8 @@ export function buildHorseProfile(
   const pairRows = driverId
     ? completed.filter((s) => s.driverId === driverId)
     : [];
+  const tempoTripProfile = buildTempoTripProfile(completed);
+  const gallopProfile = buildGallopProfile(starts);
 
   return {
     horseId,
@@ -106,6 +263,44 @@ export function buildHorseProfile(
     trackWins: trackRows.filter((s) => s.placement === 1).length,
     driverPairStarts: pairRows.length,
     driverPairWins: pairRows.filter((s) => s.placement === 1).length,
+    tempoTripProfile,
+    gallopProfile,
+  };
+}
+
+export function hydrateHorseProfile(profile: TravsportHorseProfile): TravsportHorseProfile {
+  const starts = (profile.starts ?? []).map((row) => {
+    const resultCode = row.resultCode ?? normalizeResultCode(row.placementDisplay);
+    const startPosition = row.startPosition ?? null;
+    const placement = row.placement ?? null;
+    const withdrawn = Boolean(row.withdrawn);
+    return {
+      ...row,
+      resultCode,
+      galloped: row.galloped ?? rowGalloped(resultCode),
+      disqualified: row.disqualified ?? rowDisqualified(resultCode),
+      tripComment: row.tripComment ?? buildTripComment(placement, startPosition, resultCode, withdrawn),
+    };
+  });
+
+  return {
+    ...profile,
+    starts,
+    recentStarts: (profile.recentStarts ?? starts.slice(0, 6)).map((row) => {
+      const resultCode = row.resultCode ?? normalizeResultCode(row.placementDisplay);
+      const startPosition = row.startPosition ?? null;
+      const placement = row.placement ?? null;
+      const withdrawn = Boolean(row.withdrawn);
+      return {
+        ...row,
+        resultCode,
+        galloped: row.galloped ?? rowGalloped(resultCode),
+        disqualified: row.disqualified ?? rowDisqualified(resultCode),
+        tripComment: row.tripComment ?? buildTripComment(placement, startPosition, resultCode, withdrawn),
+      };
+    }),
+    tempoTripProfile: profile.tempoTripProfile ?? buildTempoTripProfile(starts),
+    gallopProfile: profile.gallopProfile ?? buildGallopProfile(starts),
   };
 }
 

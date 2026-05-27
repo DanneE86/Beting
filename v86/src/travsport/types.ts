@@ -5,6 +5,7 @@ export interface TravsportStartRow {
   raceNumber: number;
   placement: number | null;
   placementDisplay: string;
+  resultCode: string;
   kmTime: string | null;
   kmTimeSeconds: number | null;
   startPosition: number | null;
@@ -18,6 +19,29 @@ export interface TravsportStartRow {
   odds: string;
   shoeCode: string;
   withdrawn: boolean;
+  galloped: boolean;
+  disqualified: boolean;
+  tripComment?: string;
+}
+
+export interface TravsportTempoTripProfile {
+  sampleSize: number;
+  earlySpeedScore: number;
+  closingSpeedScore: number;
+  versatilityScore: number;
+  profileScore: number;
+  style: "front" | "closer" | "versatile" | "okänd";
+  note: string;
+}
+
+export interface TravsportGallopProfile {
+  sampleSize: number;
+  gallopStarts: number;
+  gallopRate: number;
+  recentGallopRate: number;
+  stabilityScore: number;
+  riskLevel: "låg" | "medel" | "hög";
+  note: string;
 }
 
 export interface TravsportHorseProfile {
@@ -33,6 +57,8 @@ export interface TravsportHorseProfile {
   trackStarts: number;
   driverPairStarts: number;
   driverPairWins: number;
+  tempoTripProfile: TravsportTempoTripProfile;
+  gallopProfile: TravsportGallopProfile;
 }
 
 export type TravsportIndex = Record<number, TravsportHorseProfile>;

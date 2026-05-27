@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Activity } from "lucide-react";
+import { Activity, Brain, Flag, GitBranch, Radar } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const linkClass =
@@ -25,6 +25,55 @@ export function SiteSectionTabs({ className }: { className?: string }) {
       >
         <Activity className="size-4" />
         Fotboll
+      </Link>
+      <Link
+        to="/v86"
+        activeOptions={{ exact: true }}
+        activeProps={{
+          className: cn(linkClass, "bg-primary text-primary-foreground"),
+        }}
+        inactiveProps={{
+          className: cn(linkClass, "text-muted-foreground hover:bg-secondary hover:text-foreground"),
+        }}
+      >
+        <Flag className="size-4" />
+        Regel 1 ej marknad
+      </Link>
+      <Link
+        to="/v86/regel-2"
+        activeProps={{
+          className: cn(linkClass, "bg-primary text-primary-foreground"),
+        }}
+        inactiveProps={{
+          className: cn(linkClass, "text-muted-foreground hover:bg-secondary hover:text-foreground"),
+        }}
+      >
+        <GitBranch className="size-4" />
+        Regel 2 ordinarie regel
+      </Link>
+      <Link
+        to="/v86/regel-3"
+        activeProps={{
+          className: cn(linkClass, "bg-primary text-primary-foreground"),
+        }}
+        inactiveProps={{
+          className: cn(linkClass, "text-muted-foreground hover:bg-secondary hover:text-foreground"),
+        }}
+      >
+        <Brain className="size-4" />
+        Regel 3 expert analys
+      </Link>
+      <Link
+        to="/v86/regel-4"
+        activeProps={{
+          className: cn(linkClass, "bg-primary text-primary-foreground"),
+        }}
+        inactiveProps={{
+          className: cn(linkClass, "text-muted-foreground hover:bg-secondary hover:text-foreground"),
+        }}
+      >
+        <Radar className="size-4" />
+        Regel 4 djup loppbild
       </Link>
     </div>
   );

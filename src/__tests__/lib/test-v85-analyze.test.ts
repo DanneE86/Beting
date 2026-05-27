@@ -67,4 +67,65 @@ describe("analyzeLeg", () => {
     expect(leg.bankabilityScore).toBeGreaterThanOrEqual(0);
     expect(leg.opennessScore).toBeGreaterThanOrEqual(0);
   });
+
+  it("låter inte strecken ändra rank eller rekommendation när övrig data är samma", () => {
+    const baseStarts = [
+      start(1, "Ettan", 52, 30),
+      start(2, "Tvåan", 18, 22),
+      start(3, "Trean", 8, 16),
+    ];
+    const swappedStarts = [
+      start(1, "Ettan", 7, 30),
+      start(2, "Tvåan", 48, 22),
+      start(3, "Trean", 25, 16),
+    ];
+
+    const raceA: AtgRace = {
+      id: "race-a",
+      number: 1,
+      name: "Klass I",
+      distance: 2140,
+      startMethod: "auto",
+      track: { name: "Solvalla" },
+      starts: baseStarts,
+    };
+    const raceB: AtgRace = {
+      ...raceA,
+      id: "race-b",
+      starts: swappedStarts,
+    };
+
+    const legA = analyzeLeg(raceA, 1, "V85");
+    const legB = analyzeLeg(raceB, 1, "V85");
+
+    expect(legA.horses.map((horse) => horse.number)).toEqual(legB.horses.map((horse) => horse.number));
+    expect(legA.recommendation).toBe(legB.recommendation);
+    expect(legA.favorite.number).toBe(legB.favorite.number);
+    expect(legA.tipNote).not.toMatch(/streck|spelvärd|marknad/i);
+    expect(legB.tipNote).not.toMatch(/streck|spelvärd|marknad/i);
+  });
+
+  it("regel 2 använder marknadssignaler som separat profil", () => {
+    const race: AtgRace = {
+      id: "race-rule2",
+      number: 1,
+      name: "Guld",
+      distance: 2140,
+      startMethod: "auto",
+      track: { name: "Solvalla" },
+      starts: [
+        start(1, "Modellhästen", 8, 34),
+        start(2, "Marknadsfavoriten", 52, 24),
+        start(3, "Tredjehästen", 15, 18),
+      ],
+    };
+
+    const rule1 = analyzeLeg(race, 1, "V85", undefined, "rule1");
+    const rule2 = analyzeLeg(race, 1, "V85", undefined, "rule2");
+
+    expect(rule1.favorite.number).toBe(rule1.horses[0]?.number);
+    expect(rule2.favorite.number).toBe(2);
+    expect(rule2.horses.some((horse) => horse.marketRank != null)).toBe(true);
+    expect(rule2.tipNote).toMatch(/strecken|undervärderad/i);
+  });
 });

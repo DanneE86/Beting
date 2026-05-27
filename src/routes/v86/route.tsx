@@ -21,7 +21,7 @@ function V86Layout() {
                 Travsystem & hästar
               </h1>
               <p className="text-xs text-[#7fa892]">
-                V85 och Dagens Dubbel
+                V85, V86 och travregler
               </p>
             </div>
           </div>

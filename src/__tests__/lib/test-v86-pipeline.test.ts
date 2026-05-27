@@ -157,6 +157,24 @@ describe("pickDefaultPoolGame", () => {
         trackStarts: 6,
         driverPairStarts: 5,
         driverPairWins: 2,
+        tempoTripProfile: {
+          sampleSize: 6,
+          earlySpeedScore: 0.68,
+          closingSpeedScore: 0.55,
+          versatilityScore: 0.58,
+          profileScore: 0.63,
+          style: "front",
+          note: "Tidig ledarprofil",
+        },
+        gallopProfile: {
+          sampleSize: 6,
+          gallopStarts: 1,
+          gallopRate: 1 / 6,
+          recentGallopRate: 0.2,
+          stabilityScore: 0.78,
+          riskLevel: "medel",
+          note: "1/6 starter med galopp/disk",
+        },
       },
     });
 

@@ -13,6 +13,7 @@ function horse(
   betDistribution: number,
   combinedScore: number,
   valueScore = combinedScore * 2,
+  overrides: Partial<ScoredHorse> = {},
 ): ScoredHorse {
   const estimatedWinPct = Math.round(combinedScore * 50 * 10) / 10;
   const valueEdgePct = Math.round((estimatedWinPct - betDistribution) * 10) / 10;
@@ -32,10 +33,15 @@ function horse(
     estimatedWinPct,
     valueEdgePct,
     formTrend: "stigande",
+    tempoTripScore: 0.64,
+    tempoTripStyle: "versatile",
+    gallopRiskScore: 0.78,
+    gallopRiskLevel: "låg",
     highlights: [],
     horseChecklist: [],
     driverChecklist: [],
     isSkrellCandidate: betDistribution >= 2 && betDistribution <= 14,
+    ...overrides,
   };
 }
 
@@ -70,6 +76,27 @@ function expectSupersetByLeg(
       expect(matching!.picks).toContain(pick);
     }
   }
+}
+
+function withoutMarketSignals(legs: LegAnalysis[]): LegAnalysis[] {
+  return legs.map((item) => {
+    const horses = item.horses.map((horse) => ({
+      ...horse,
+      valueEdgePct: undefined,
+      marketRank: undefined,
+    }));
+    const favorite =
+      horses.find((horse) => horse.number === item.favorite.number) ?? horses[0];
+    const skrellSpike = item.skrellSpike
+      ? horses.find((horse) => horse.number === item.skrellSpike?.number) ?? null
+      : null;
+    return {
+      ...item,
+      horses,
+      favorite,
+      skrellSpike,
+    };
+  });
 }
 
 describe("buildSystem", () => {
@@ -188,6 +215,82 @@ describe("buildSystem", () => {
     expect(spikar.every((selection) => selection.type === "spik")).toBe(true);
   });
 
+  it("bygger samma V85-system även om bara strecken ändras", () => {
+    const legsA = withoutMarketSignals([
+      leg(1, "gardering", [horse(1, 58, 0.74), horse(2, 19, 0.68), horse(3, 9, 0.61)], 1, 2),
+      leg(2, "bred", [horse(4, 44, 0.7), horse(5, 21, 0.67), horse(6, 12, 0.63), horse(7, 8, 0.58)], 4, 5),
+      leg(3, "spik", [horse(8, 49, 0.82), horse(9, 18, 0.61), horse(10, 8, 0.56)], 8),
+      leg(4, "gardering", [horse(11, 36, 0.68), horse(12, 22, 0.64), horse(13, 11, 0.6)], 11, 12),
+      leg(5, "gardering", [horse(14, 31, 0.66), horse(15, 19, 0.63), horse(16, 13, 0.59)], 14),
+      leg(6, "gardering", [horse(17, 29, 0.65), horse(18, 18, 0.62), horse(19, 12, 0.58)], 17),
+      leg(7, "bred", [horse(20, 26, 0.63), horse(21, 20, 0.61), horse(22, 14, 0.58), horse(23, 9, 0.55)], 20, 21),
+      leg(8, "gardering", [horse(24, 28, 0.64), horse(25, 17, 0.61), horse(26, 11, 0.57)], 24),
+    ]);
+    const legsB = withoutMarketSignals([
+      leg(1, "gardering", [horse(1, 6, 0.74), horse(2, 47, 0.68), horse(3, 28, 0.61)], 1, 2),
+      leg(2, "bred", [horse(4, 12, 0.7), horse(5, 39, 0.67), horse(6, 24, 0.63), horse(7, 7, 0.58)], 4, 5),
+      leg(3, "spik", [horse(8, 9, 0.82), horse(9, 43, 0.61), horse(10, 21, 0.56)], 8),
+      leg(4, "gardering", [horse(11, 8, 0.68), horse(12, 34, 0.64), horse(13, 27, 0.6)], 11, 12),
+      leg(5, "gardering", [horse(14, 10, 0.66), horse(15, 31, 0.63), horse(16, 25, 0.59)], 14),
+      leg(6, "gardering", [horse(17, 7, 0.65), horse(18, 30, 0.62), horse(19, 24, 0.58)], 17),
+      leg(7, "bred", [horse(20, 9, 0.63), horse(21, 33, 0.61), horse(22, 19, 0.58), horse(23, 14, 0.55)], 20, 21),
+      leg(8, "gardering", [horse(24, 8, 0.64), horse(25, 29, 0.61), horse(26, 20, 0.57)], 24),
+    ]);
+
+    const systemA = buildSystem("V85_market_free_a", "V85", legsA, {
+      budgetKr: 600,
+      targetMinPayoutKr: 30000,
+    });
+    const systemB = buildSystem("V85_market_free_b", "V85", legsB, {
+      budgetKr: 600,
+      targetMinPayoutKr: 30000,
+    });
+
+    expect(systemA.selections.map((selection) => selection.picks)).toEqual(
+      systemB.selections.map((selection) => selection.picks),
+    );
+    expect(systemA.selections.map((selection) => selection.type)).toEqual(
+      systemB.selections.map((selection) => selection.type),
+    );
+    expect(systemA.costKr).toBe(systemB.costKr);
+  });
+
+  it("låter marknadssignaler ändra ordinarie Regel 2-system", () => {
+    const legsA: LegAnalysis[] = [
+      leg(1, "gardering", [horse(1, 58, 0.74), horse(2, 19, 0.68), horse(3, 9, 0.61)], 1, 2),
+      leg(2, "bred", [horse(4, 44, 0.7), horse(5, 21, 0.67), horse(6, 12, 0.63), horse(7, 8, 0.58)], 4, 5),
+      leg(3, "spik", [horse(8, 49, 0.82), horse(9, 18, 0.61), horse(10, 8, 0.56)], 8),
+      leg(4, "gardering", [horse(11, 36, 0.68), horse(12, 22, 0.64), horse(13, 11, 0.6)], 11, 12),
+      leg(5, "gardering", [horse(14, 31, 0.66), horse(15, 19, 0.63), horse(16, 13, 0.59)], 14),
+      leg(6, "gardering", [horse(17, 29, 0.65), horse(18, 18, 0.62), horse(19, 12, 0.58)], 17),
+      leg(7, "bred", [horse(20, 26, 0.63), horse(21, 20, 0.61), horse(22, 14, 0.58), horse(23, 9, 0.55)], 20, 21),
+      leg(8, "gardering", [horse(24, 28, 0.64), horse(25, 17, 0.61), horse(26, 11, 0.57)], 24),
+    ];
+    const legsB: LegAnalysis[] = [
+      leg(1, "gardering", [horse(1, 6, 0.74), horse(2, 47, 0.68), horse(3, 28, 0.61)], 2, 2),
+      leg(2, "bred", [horse(4, 12, 0.7), horse(5, 39, 0.67), horse(6, 24, 0.63), horse(7, 7, 0.58)], 5, 5),
+      leg(3, "spik", [horse(8, 9, 0.82), horse(9, 43, 0.61), horse(10, 21, 0.56)], 9),
+      leg(4, "gardering", [horse(11, 8, 0.68), horse(12, 34, 0.64), horse(13, 27, 0.6)], 12, 12),
+      leg(5, "gardering", [horse(14, 10, 0.66), horse(15, 31, 0.63), horse(16, 25, 0.59)], 15),
+      leg(6, "gardering", [horse(17, 7, 0.65), horse(18, 30, 0.62), horse(19, 24, 0.58)], 18),
+      leg(7, "bred", [horse(20, 9, 0.63), horse(21, 33, 0.61), horse(22, 19, 0.58), horse(23, 14, 0.55)], 21, 21),
+      leg(8, "gardering", [horse(24, 8, 0.64), horse(25, 29, 0.61), horse(26, 20, 0.57)], 25),
+    ];
+
+    const systemA = buildSystem("V85_rule2_a", "V85", legsA, {
+      budgetKr: 600,
+      targetMinPayoutKr: 30000,
+    });
+    const systemB = buildSystem("V85_rule2_b", "V85", legsB, {
+      budgetKr: 600,
+      targetMinPayoutKr: 30000,
+    });
+
+    expect(systemA.selections.map((selection) => selection.picks)).not.toEqual(
+      systemB.selections.map((selection) => selection.picks),
+    );
+  });
+
   it("tvingar inte två spikar i DD", () => {
     const legs: LegAnalysis[] = [
       leg(1, "gardering", [horse(1, 34, 0.63), horse(2, 23, 0.6)], 1),
@@ -202,6 +305,39 @@ describe("buildSystem", () => {
     const spikar = system.selections.filter((selection) => selection.type !== "gardering");
     expect(spikar.length).toBeLessThanOrEqual(1);
     expect(system.rows).toBeLessThanOrEqual(6);
+  });
+
+  it("undviker helst spik på häst med hög galopprisk", () => {
+    const legs: LegAnalysis[] = [
+      leg(
+        1,
+        "spik",
+        [
+          horse(1, 32, 0.84, 1.5, { gallopRiskScore: 0.22, gallopRiskLevel: "hög", tempoTripScore: 0.55 }),
+          horse(2, 24, 0.8, 1.4, { gallopRiskScore: 0.88, gallopRiskLevel: "låg", tempoTripScore: 0.72 }),
+          horse(3, 12, 0.61),
+        ],
+        1,
+      ),
+      ...Array.from({ length: 7 }, (_, index) =>
+        leg(
+          index + 2,
+          "gardering",
+          [horse(1, 36, 0.67), horse(2, 18, 0.61), horse(3, 11, 0.58)],
+          1,
+        ),
+      ),
+    ];
+
+    const system = buildSystem("V85_gallop_guard", "V85", legs, {
+      budgetKr: 600,
+      targetMinPayoutKr: 30000,
+    });
+
+    const selection = system.selections.find((item) => item.leg === 1);
+    expect(selection).toBeTruthy();
+    expect(selection!.picks).toContain(2);
+    expect(selection!.picks).not.toEqual([1]);
   });
 
   it("behåller skrällhästen i garderat lopp för bättre skrälltäckning", () => {

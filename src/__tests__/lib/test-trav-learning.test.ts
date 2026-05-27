@@ -144,7 +144,7 @@ function buildSnapshot(): FetchSnapshot {
               },
             ],
             driverChecklist: [],
-            highlights: ["Undervärderad mot strecken"],
+            highlights: ["Stark avslutning senast"],
           },
           {
             number: 5,
@@ -270,16 +270,16 @@ describe("trav learning", () => {
     expect(hitSummary.missLegs[0]?.leg).toBe(2);
   });
 
-  it("bygger fallback-postmortem med edge- och spårlärdomar", () => {
+  it("bygger fallback-postmortem med hästdata och spårlärdomar", () => {
     const snapshot = buildSnapshot();
     const resolved = extractTravResult(buildGame());
     const hitSummary = buildSystemHitSummary(snapshot.system, resolved);
     const postmortem = buildFallbackTravPostmortem(snapshot, resolved, hitSummary);
 
     expect(postmortem.summary).toMatch(/1\/2 rätt/);
-    expect(postmortem.why.join(" ")).toMatch(/strecken|\+7\.4/i);
-    expect(postmortem.lessons.join(" ")).toMatch(/spårhistorik|edge/i);
-    expect(postmortem.signalsMissed?.join(" ")).toMatch(/spår|undervärderad|stigande/i);
+    expect(postmortem.why.join(" ")).toMatch(/grundsignaler|stigande|spår/i);
+    expect(postmortem.lessons.join(" ")).toMatch(/spårhistorik|kombinerad score/i);
+    expect(postmortem.signalsMissed?.join(" ")).toMatch(/spår|avslutning|stigande/i);
     expect(postmortem.alternativeActions?.[0]).toMatch(/Gardera avd 2/i);
   });
 
