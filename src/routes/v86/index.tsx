@@ -189,11 +189,13 @@ function analysisLegsOf(legs: unknown) {
 function HorseAnalysisTables({
   legs,
   compact = false,
-  showMarketColumns = false,
+  showBetColumn = false,
+  showEdgeColumn = false,
 }: {
   legs: ReturnType<typeof analysisLegsOf>;
   compact?: boolean;
-  showMarketColumns?: boolean;
+  showBetColumn?: boolean;
+  showEdgeColumn?: boolean;
 }) {
   if (!legs.length) return null;
 
@@ -219,8 +221,8 @@ function HorseAnalysisTables({
                     <th className="px-2 py-1">Häst</th>
                     <th className="px-2 py-1">Förväntad slutbild</th>
                     <th className="px-2 py-1">Vinst%</th>
-                    {showMarketColumns && <th className="px-2 py-1">Spel%</th>}
-                    {showMarketColumns && <th className="px-2 py-1">Edge</th>}
+                    {showBetColumn && <th className="px-2 py-1">Spel%</th>}
+                    {showEdgeColumn && <th className="px-2 py-1">Edge</th>}
                     <th className="px-2 py-1">Kort analys</th>
                   </tr>
                 </thead>
@@ -238,12 +240,12 @@ function HorseAnalysisTables({
                       <td className="px-2 py-1">
                         {horse.estimatedWinPct != null ? `${horse.estimatedWinPct.toFixed(1)}%` : "—"}
                       </td>
-                      {showMarketColumns && (
+                      {showBetColumn && (
                         <td className="px-2 py-1">
                           {horse.betDistribution != null ? `${horse.betDistribution.toFixed(1)}%` : "—"}
                         </td>
                       )}
-                      {showMarketColumns && (
+                      {showEdgeColumn && (
                         <td className="px-2 py-1">
                           {horse.valueEdgePct != null
                             ? `${horse.valueEdgePct >= 0 ? "+" : ""}${horse.valueEdgePct.toFixed(1)}%`
@@ -955,7 +957,7 @@ export function TravRuleDashboardPage({
                     <p className="mt-3 flex items-center gap-1 text-xs text-[#f0c674]">
                       <TrendingUp className="h-3.5 w-3.5" />
                       Skräll: {leg.skrellSpike.number}. {leg.skrellSpike.name}
-                      {showMarketView ? ` (${leg.skrellSpike.betDistribution.toFixed(1)}%)` : ""}
+                      {leg.skrellSpike.betDistribution != null ? ` (${leg.skrellSpike.betDistribution.toFixed(1)}%)` : ""}
                     </p>
                   )}
                 </Card>
@@ -972,7 +974,8 @@ export function TravRuleDashboardPage({
             </div>
             <HorseAnalysisTables
               legs={analysisLegsOf(snapshot.legs)}
-              showMarketColumns={showMarketView}
+              showBetColumn
+              showEdgeColumn={showMarketView}
             />
           </Card>
 
@@ -1330,7 +1333,8 @@ export function TravRuleDashboardPage({
                           <HorseAnalysisTables
                             legs={storedLegs}
                             compact
-                            showMarketColumns={row.meta?.rule?.id === "rule2"}
+                            showBetColumn
+                            showEdgeColumn={row.meta?.rule?.id === "rule2"}
                           />
                         </div>
                       )}
