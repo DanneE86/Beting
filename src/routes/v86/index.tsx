@@ -778,7 +778,15 @@ export function TravRuleDashboardPage({
                       const equipmentStatus = shoeChanged || sulkyChanged
                         ? `${shoeChanged ? "Skor ändrat" : ""}${shoeChanged && sulkyChanged ? " + " : ""}${sulkyChanged ? "vagn ändrad" : ""}`
                         : "Ingen registrerad ändring";
+                      const betText = h.betDistribution != null ? `${h.betDistribution.toFixed(1)}% spel` : null;
+                      const winText = `${(h.estimatedWinPct ?? 0).toFixed(1)}% vinst`;
                       const horseFacts: Array<{ label: string; value: string; sourceLabel: string; sourceUrl: string }> = [
+                        {
+                          label: "Folkets spel%",
+                          value: betText ?? "—",
+                          sourceLabel: "ATG Racinginfo API",
+                          sourceUrl: "https://www.atg.se/services/racinginfo/v1/api",
+                        },
                         {
                           label: "Spår idag",
                           value: startData?.postPosition != null ? String(startData.postPosition) : "—",
@@ -866,9 +874,7 @@ export function TravRuleDashboardPage({
                                 </span>
                               </span>
                               <span className="tabular-nums text-[#7fa892]">
-                                {h.betDistribution != null
-                                  ? `${h.betDistribution.toFixed(1)}% spel`
-                                  : `${(h.estimatedWinPct ?? 0).toFixed(1)}% vinst`}
+                                {betText ? `${betText} · ${winText}` : winText}
                               </span>
                             </button>
                           </li>
