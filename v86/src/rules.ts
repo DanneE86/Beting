@@ -26,24 +26,14 @@ export const TRAV_RULES: Record<
     version: "rule2-v1",
     usesMarketData: true,
   },
-  rule3: {
-    id: "rule3",
-    label: "Regel 3: expert analys",
-    shortLabel: "Expert analys",
-    version: "rule3-v1",
-    usesMarketData: false,
-  },
-  rule4: {
-    id: "rule4",
-    label: "Regel 4: djup loppbild",
-    shortLabel: "Djup loppbild",
-    version: "rule4-v1",
-    usesMarketData: false,
-  },
+  // Regel 3 och 4 är inaktiverade (döljs i UI).
+  rule3: { id: "rule3", label: "Regel 3: (inaktiverad)", shortLabel: "Inaktiverad", version: "rule3-v1", usesMarketData: false },
+  rule4: { id: "rule4", label: "Regel 4: (inaktiverad)", shortLabel: "Inaktiverad", version: "rule4-v1", usesMarketData: false },
 };
 
 export function normalizeTravRuleId(ruleId?: string | null): TravRuleId {
-  return ruleId === "rule2" || ruleId === "rule3" || ruleId === "rule4" ? ruleId : DEFAULT_TRAV_RULE_ID;
+  // Endast regel 1 och 2 är aktiva.
+  return ruleId === "rule2" ? "rule2" : DEFAULT_TRAV_RULE_ID;
 }
 
 export function travRuleLabel(ruleId?: string | null): string {
