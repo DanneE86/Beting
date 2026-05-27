@@ -134,15 +134,7 @@ export function scoreHorseChecklist(
   race: AtgRace,
   fieldStarts: AtgStart[],
   travsport?: TravsportHorseProfile | null,
-): {
-  items: ChecklistItem[];
-  formTrend: HorseDriverScores["formTrend"];
-  highlights: string[];
-  tempoTripScore: number;
-  tempoTripStyle: HorseDriverScores["tempoTripStyle"];
-  gallopRiskScore: number;
-  gallopRiskLevel: HorseDriverScores["gallopRiskLevel"];
-} {
+): { items: ChecklistItem[]; formTrend: HorseDriverScores["formTrend"]; highlights: string[] } {
   const h = start.horse;
   const stats = h?.statistics;
   const y2025 = stats?.years?.["2025"] as YearStat | undefined;
@@ -249,10 +241,6 @@ export function scoreHorseChecklist(
       : starts2026 >= 12
         ? 0.5
         : 0.6;
-  const tempoTripScore = travsport?.tempoTripProfile.profileScore ?? 0.5;
-  const tempoTripStyle = travsport?.tempoTripProfile.style ?? "okänd";
-  const gallopRiskScore = travsport?.gallopProfile.stabilityScore ?? 0.5;
-  const gallopRiskLevel = travsport?.gallopProfile.riskLevel ?? "medel";
 
   if (travsport?.recentStarts?.length) {
     const km = travsport.recentStarts
@@ -267,15 +255,6 @@ export function scoreHorseChecklist(
   }
   if (laneHistory?.strong) highlights.push(`Spårhistorik stark (${laneHistory.note})`);
   if (laneHistory?.weak) highlights.push(`Spårhistorik svag (${laneHistory.note})`);
-  if (travsport?.tempoTripProfile.sampleSize) {
-    if (tempoTripStyle === "front") highlights.push("Tidig ledarprofil");
-    if (tempoTripStyle === "closer") highlights.push("Tål tufft tempo bakifrån");
-    if (tempoTripStyle === "versatile") highlights.push("Allround tempo/trip-profil");
-  }
-  if (travsport?.gallopProfile.sampleSize) {
-    if (gallopRiskLevel === "låg") highlights.push("Travsäker historik");
-    if (gallopRiskLevel === "hög") highlights.push(`Galopprisk hög (${travsport.gallopProfile.note})`);
-  }
   if (formTrend === "stigande") highlights.push("Stigande formkurva");
   if (distMatch) highlights.push("Distans passar");
   if (trWin >= 15) highlights.push(`Tränare i form (${trWin.toFixed(0)}% vinst 2026)`);
@@ -326,24 +305,6 @@ export function scoreHorseChecklist(
       weight: 0.9,
       available: true,
       note: `Spår ${post}, ${raceMethod}${isVolt ? " (volt)" : " (auto)"}${laneHistory ? ` · ${laneHistory.note}` : ""}`,
-    },
-    {
-      id: "tempo_trip",
-      category: "häst",
-      label: "Tempo/trip-profil",
-      score: tempoTripScore,
-      weight: 1,
-      available: Boolean(travsport?.tempoTripProfile.sampleSize),
-      note: travsport?.tempoTripProfile.note ?? "Härleds inte ännu",
-    },
-    {
-      id: "gallop_risk",
-      category: "häst",
-      label: "Galopprisk",
-      score: gallopRiskScore,
-      weight: 1.05,
-      available: Boolean(travsport?.gallopProfile.sampleSize),
-      note: travsport?.gallopProfile.note ?? "Ingen historik ännu",
     },
     {
       id: "track",
@@ -426,13 +387,5 @@ export function scoreHorseChecklist(
     },
   ];
 
-  return {
-    items,
-    formTrend,
-    highlights,
-    tempoTripScore,
-    tempoTripStyle,
-    gallopRiskScore,
-    gallopRiskLevel,
-  };
+  return { items, formTrend, highlights };
 }
