@@ -12,9 +12,11 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as V86RouteRouteImport } from './routes/v86/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as V86IndexRouteImport } from './routes/v86/index'
+import { Route as V86Regel5RouteImport } from './routes/v86/regel-5'
 import { Route as V86Regel4RouteImport } from './routes/v86/regel-4'
 import { Route as V86Regel3RouteImport } from './routes/v86/regel-3'
 import { Route as V86Regel2RouteImport } from './routes/v86/regel-2'
+import { Route as V86Regel1RouteImport } from './routes/v86/regel-1'
 import { Route as ApiPredictRouteImport } from './routes/api/predict'
 
 const V86RouteRoute = V86RouteRouteImport.update({
@@ -32,6 +34,11 @@ const V86IndexRoute = V86IndexRouteImport.update({
   path: '/',
   getParentRoute: () => V86RouteRoute,
 } as any)
+const V86Regel5Route = V86Regel5RouteImport.update({
+  id: '/regel-5',
+  path: '/regel-5',
+  getParentRoute: () => V86RouteRoute,
+} as any)
 const V86Regel4Route = V86Regel4RouteImport.update({
   id: '/regel-4',
   path: '/regel-4',
@@ -47,6 +54,11 @@ const V86Regel2Route = V86Regel2RouteImport.update({
   path: '/regel-2',
   getParentRoute: () => V86RouteRoute,
 } as any)
+const V86Regel1Route = V86Regel1RouteImport.update({
+  id: '/regel-1',
+  path: '/regel-1',
+  getParentRoute: () => V86RouteRoute,
+} as any)
 const ApiPredictRoute = ApiPredictRouteImport.update({
   id: '/api/predict',
   path: '/api/predict',
@@ -57,17 +69,21 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/v86': typeof V86RouteRouteWithChildren
   '/api/predict': typeof ApiPredictRoute
+  '/v86/regel-1': typeof V86Regel1Route
   '/v86/regel-2': typeof V86Regel2Route
   '/v86/regel-3': typeof V86Regel3Route
   '/v86/regel-4': typeof V86Regel4Route
+  '/v86/regel-5': typeof V86Regel5Route
   '/v86/': typeof V86IndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/predict': typeof ApiPredictRoute
+  '/v86/regel-1': typeof V86Regel1Route
   '/v86/regel-2': typeof V86Regel2Route
   '/v86/regel-3': typeof V86Regel3Route
   '/v86/regel-4': typeof V86Regel4Route
+  '/v86/regel-5': typeof V86Regel5Route
   '/v86': typeof V86IndexRoute
 }
 export interface FileRoutesById {
@@ -75,9 +91,11 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/v86': typeof V86RouteRouteWithChildren
   '/api/predict': typeof ApiPredictRoute
+  '/v86/regel-1': typeof V86Regel1Route
   '/v86/regel-2': typeof V86Regel2Route
   '/v86/regel-3': typeof V86Regel3Route
   '/v86/regel-4': typeof V86Regel4Route
+  '/v86/regel-5': typeof V86Regel5Route
   '/v86/': typeof V86IndexRoute
 }
 export interface FileRouteTypes {
@@ -86,26 +104,32 @@ export interface FileRouteTypes {
     | '/'
     | '/v86'
     | '/api/predict'
+    | '/v86/regel-1'
     | '/v86/regel-2'
     | '/v86/regel-3'
     | '/v86/regel-4'
+    | '/v86/regel-5'
     | '/v86/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/api/predict'
+    | '/v86/regel-1'
     | '/v86/regel-2'
     | '/v86/regel-3'
     | '/v86/regel-4'
+    | '/v86/regel-5'
     | '/v86'
   id:
     | '__root__'
     | '/'
     | '/v86'
     | '/api/predict'
+    | '/v86/regel-1'
     | '/v86/regel-2'
     | '/v86/regel-3'
     | '/v86/regel-4'
+    | '/v86/regel-5'
     | '/v86/'
   fileRoutesById: FileRoutesById
 }
@@ -138,6 +162,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V86IndexRouteImport
       parentRoute: typeof V86RouteRoute
     }
+    '/v86/regel-5': {
+      id: '/v86/regel-5'
+      path: '/regel-5'
+      fullPath: '/v86/regel-5'
+      preLoaderRoute: typeof V86Regel5RouteImport
+      parentRoute: typeof V86RouteRoute
+    }
     '/v86/regel-4': {
       id: '/v86/regel-4'
       path: '/regel-4'
@@ -159,6 +190,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V86Regel2RouteImport
       parentRoute: typeof V86RouteRoute
     }
+    '/v86/regel-1': {
+      id: '/v86/regel-1'
+      path: '/regel-1'
+      fullPath: '/v86/regel-1'
+      preLoaderRoute: typeof V86Regel1RouteImport
+      parentRoute: typeof V86RouteRoute
+    }
     '/api/predict': {
       id: '/api/predict'
       path: '/api/predict'
@@ -170,16 +208,20 @@ declare module '@tanstack/react-router' {
 }
 
 interface V86RouteRouteChildren {
+  V86Regel1Route: typeof V86Regel1Route
   V86Regel2Route: typeof V86Regel2Route
   V86Regel3Route: typeof V86Regel3Route
   V86Regel4Route: typeof V86Regel4Route
+  V86Regel5Route: typeof V86Regel5Route
   V86IndexRoute: typeof V86IndexRoute
 }
 
 const V86RouteRouteChildren: V86RouteRouteChildren = {
+  V86Regel1Route: V86Regel1Route,
   V86Regel2Route: V86Regel2Route,
   V86Regel3Route: V86Regel3Route,
   V86Regel4Route: V86Regel4Route,
+  V86Regel5Route: V86Regel5Route,
   V86IndexRoute: V86IndexRoute,
 }
 

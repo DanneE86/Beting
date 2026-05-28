@@ -29,11 +29,18 @@ export const TRAV_RULES: Record<
   // Regel 3 och 4 är inaktiverade (döljs i UI).
   rule3: { id: "rule3", label: "Regel 3: (inaktiverad)", shortLabel: "Inaktiverad", version: "rule3-v1", usesMarketData: false },
   rule4: { id: "rule4", label: "Regel 4: (inaktiverad)", shortLabel: "Inaktiverad", version: "rule4-v1", usesMarketData: false },
+  rule5: {
+    id: "rule5",
+    label: "Regel 5: målstyrd plusstrategi",
+    shortLabel: "Målstyrd plus",
+    version: "rule5-v1",
+    usesMarketData: true,
+  },
 };
 
 export function normalizeTravRuleId(ruleId?: string | null): TravRuleId {
-  // Endast regel 1 och 2 är aktiva.
-  return ruleId === "rule2" ? "rule2" : DEFAULT_TRAV_RULE_ID;
+  if (ruleId === "rule2" || ruleId === "rule5") return ruleId;
+  return DEFAULT_TRAV_RULE_ID;
 }
 
 export function travRuleLabel(ruleId?: string | null): string {
@@ -96,6 +103,41 @@ export function defaultRuleCoverage(ruleId: TravRuleId): TravRuleCoverageGroup[]
       { id: "expertConsensus", label: "Expertkonsensus", status: "missing", detail: "Ingen expertkälla hämtad ännu" },
       { id: "ratings", label: "Ratings", status: "missing", detail: "ATG speed/power ratings saknas som strukturerade fält" },
       { id: "paceProfile", label: "Loppscenario", status: "partial", detail: "Härledd pace/trip-profil finns, men sectimes saknas fortfarande" },
+    ];
+  }
+
+  if (ruleId === "rule5") {
+    return [
+      {
+        id: "horseCore",
+        label: "Hästprofil",
+        status: "available",
+        detail: "Baseras på form, kapacitet, klass, bana och Travsport-historik.",
+      },
+      {
+        id: "technicalCore",
+        label: "Systemoptimering",
+        status: "available",
+        detail: "Budget och målutdelning optimeras för positiv månadsnetto och högre topputdelning.",
+      },
+      {
+        id: "expertConsensus",
+        label: "Marknadssignal",
+        status: "partial",
+        detail: "Marknadsdata används, men extern expertkonsensus ingår inte fullt ut.",
+      },
+      {
+        id: "ratings",
+        label: "Risk/Reward-profil",
+        status: "partial",
+        detail: "Regeln prioriterar kombinationer med chans till >100k och miljonutfall där datan stödjer det.",
+      },
+      {
+        id: "paceProfile",
+        label: "Loppscenario",
+        status: "available",
+        detail: "Tempo/trip-proxy, spår och kusk/häst-kemi används för att minska onödig risk.",
+      },
     ];
   }
 

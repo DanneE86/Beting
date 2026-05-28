@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Activity, Flag, GitBranch } from "lucide-react";
+import { Activity, Flag, GitBranch, Gem } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const linkClass =
@@ -29,6 +29,18 @@ export function SiteSectionTabs({ className }: { className?: string }) {
       <Link
         to="/v86"
         activeOptions={{ exact: true }}
+        activeProps={{
+          className: cn(linkClass, "bg-primary text-primary-foreground"),
+        }}
+        inactiveProps={{
+          className: cn(linkClass, "text-muted-foreground hover:bg-secondary hover:text-foreground"),
+        }}
+      >
+        <Gem className="size-4" />
+        Regel 5 målstyrd plus
+      </Link>
+      <Link
+        to="/v86/regel-1"
         activeProps={{
           className: cn(linkClass, "bg-primary text-primary-foreground"),
         }}

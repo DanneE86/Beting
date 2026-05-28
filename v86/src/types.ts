@@ -2,7 +2,7 @@ import type { TravsportHorseProfile } from "./travsport/types";
 
 /** V85, V86 och Dagens Dubbel (ATG-nyckel `dd`). */
 export type PoolGameType = "V85" | "V86" | "dd";
-export type TravRuleId = "rule1" | "rule2" | "rule3" | "rule4";
+export type TravRuleId = "rule1" | "rule2" | "rule3" | "rule4" | "rule5";
 
 export type TravCoverageGroupId =
   | "horseCore"

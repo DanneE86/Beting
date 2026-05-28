@@ -32,7 +32,7 @@ import { toast } from "sonner";
 import { rowPriceKr } from "../../../v86/src/game-types";
 
 export const Route = createFileRoute("/v86/")({
-  component: Rule1Page,
+  component: Regel5DefaultPage,
 });
 
 export type TravRuleDashboardProps = {
@@ -43,13 +43,13 @@ export type TravRuleDashboardProps = {
   extraIntro?: ReactNode;
 };
 
-function Rule1Page() {
+function Regel5DefaultPage() {
   return (
     <TravRuleDashboardPage
-      ruleId="rule1"
-      title="Regel 1: ej marknad"
-      description="Den aktiva travregeln bygger rank och system utan att luta sig mot vad folk har spelat på. Analysen ska styras av ren hästdata, kuskdata, form, spår, bana, distans och Travsport-signaler."
-      badgeText="Aktiv regel"
+      ruleId="rule5"
+      title="Regel 5: målstyrd plusstrategi"
+      description="Regel 5 prioriterar månadsstabil plusprofil med målet minst +10 000 kr per månad, samtidigt som den bibehåller chans på stora utdelningar över 100 000 kr och miljonutfall."
+      badgeText="Standardregel"
     />
   );
 }
@@ -408,7 +408,7 @@ export function TravRuleDashboardPage({
     () => (snapshot ? formatMarks(snapshot) : ""),
     [snapshot],
   );
-  const showMarketView = ruleId === "rule2";
+  const showMarketView = ruleId === "rule2" || ruleId === "rule5";
   const dataModelRows = [
     {
       label: "Form och nivå",

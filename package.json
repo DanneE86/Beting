@@ -36,6 +36,7 @@
     "v86:build": "npx tsx scripts/sync-all.ts --only=v86",
     "v86:analyze": "npx tsx v86/scripts/fetch-and-build.ts",
     "v85:analyze:saturdays": "npx tsx v86/scripts/analyze-v85-saturdays.ts",
+    "trav:analyze:2026": "npx tsx v86/scripts/analyze-2026-all-games.ts",
     "trav:backfill:race-data": "npx tsx v86/scripts/backfill-trav-race-data.ts",
     "dd:analyze:months": "npx tsx v86/scripts/analyze-dd-six-months.ts",
     "v86:travsport": "npx tsx v86/scripts/travsport-sync.ts",
