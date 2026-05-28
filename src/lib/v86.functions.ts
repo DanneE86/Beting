@@ -24,6 +24,9 @@ export type { FetchSnapshot, GameOption };
 export { pickDefaultPoolGame };
 export { pickDefaultV85Game, pickDefaultV85Game as pickDefaultV86Game };
 
+export const TRAV_RULE_IDS = ["rule1", "rule2", "rule3", "rule4", "rule5"] as const;
+export const TRAV_RULE_IDS_WITH_ALL = [...TRAV_RULE_IDS, "all"] as const;
+
 export const v86ListGames = createServerFn({ method: "GET" })
   .inputValidator((d: { date?: string }) =>
     z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).parse(d),
@@ -48,7 +51,7 @@ export const v86Analyze = createServerFn({ method: "POST" })
         .object({
           date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
           gameId: z.string().min(1).optional(),
-          ruleId: z.enum(["rule1", "rule2", "rule3", "rule4"]).optional(),
+          ruleId: z.enum(TRAV_RULE_IDS).optional(),
           budgetKr: z.number().min(25).max(50_000).optional(),
           targetMinPayoutKr: z.number().min(1_000).max(10_000_000).optional(),
           autoBudget: z.boolean().optional(),
@@ -90,7 +93,7 @@ export const v86History = createServerFn({ method: "GET" })
         .object({
           limit: z.number().int().min(1).max(100).optional(),
           gameType: z.enum(["V85", "V86", "dd", "all"]).optional(),
-          ruleId: z.enum(["rule1", "rule2", "rule3", "rule4", "all"]).optional(),
+          ruleId: z.enum(TRAV_RULE_IDS_WITH_ALL).optional(),
         })
         .parse(d),
   )
@@ -123,7 +126,7 @@ export const v86BacktestHistory = createServerFn({ method: "POST" })
       z
         .object({
           gameType: z.enum(["V85", "V86", "dd"]),
-          ruleId: z.enum(["rule1", "rule2", "rule3", "rule4"]).optional(),
+          ruleId: z.enum(TRAV_RULE_IDS).optional(),
           fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           maxGames: z.number().int().min(1).max(200).optional(),

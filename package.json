@@ -42,7 +42,9 @@
     "v86:travsport": "npx tsx v86/scripts/travsport-sync.ts",
     "v86:dev": "vite dev --open /v86",
     "test:v86": "playwright test tests/v86-fetch.spec.ts",
-    "test:v86:headed": "playwright test tests/v86-fetch.spec.ts --headed"
+    "test:v86:headed": "playwright test tests/v86-fetch.spec.ts --headed",
+    "test:v86:rule5:local": "playwright test tests/v86-rule5-ui.spec.ts",
+    "test:v86:rule5:prod": "powershell -ExecutionPolicy Bypass -Command \"$env:V86_BASE_URL='https://beting.proffs.workers.dev'; npx playwright test tests/v86-rule5-ui.spec.ts\""
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.25.5",
