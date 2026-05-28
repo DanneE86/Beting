@@ -19,6 +19,8 @@ const tables = [
   "trav_predictions",
   "trav_learning_prompts",
   "model_learning_prompts",
+  "football_match_intel",
+  "football_rulebook",
 ];
 
 async function main() {

@@ -1,5 +1,4 @@
 import { Link, Outlet, createFileRoute } from "@tanstack/react-router";
-import { SiteSectionTabs } from "@/components/SiteSectionTabs";
 import { Toaster } from "@/components/ui/sonner";
 import { Flag } from "lucide-react";
 
@@ -28,9 +27,6 @@ function V86Layout() {
           <Link to="/" className="text-sm text-[#7fa892] transition-colors hover:text-[#b8f0d0]">
             ← Tillbaka till PitchData
           </Link>
-          <div className="basis-full">
-            <SiteSectionTabs className="border-[#1e3d2a] bg-[#111c16]" />
-          </div>
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6">

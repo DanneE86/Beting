@@ -255,6 +255,21 @@ export interface SystemSelection {
   note?: string;
 }
 
+export interface SystemHitOutlook {
+  fullRowHitPct: number;
+  legs: Array<{
+    leg: number;
+    hitPct: number;
+    picks: number[];
+    selectionType: SystemSelection["type"];
+  }>;
+  biggestRisk: {
+    leg: number;
+    hitPct: number;
+    reason: string;
+  };
+}
+
 export interface BuiltSystem {
   gameId: string;
   gameType: PoolGameType;
@@ -265,6 +280,8 @@ export interface BuiltSystem {
   estimatedPayoutNote: string;
   selections: SystemSelection[];
   skrellSpikeLeg: number | null;
+  /** Modellens approximerade träffsannolikhet utifrån markeringarna */
+  hitOutlook?: SystemHitOutlook;
 }
 
 export interface AndelsShareTip {
@@ -333,6 +350,7 @@ export interface SnapshotRaceData {
   distance?: number;
   startMethod?: string;
   result?: AtgRace["result"];
+  scratchings?: number[];
   pools?: AtgRace["pools"];
   starts: SnapshotRaceStartData[];
 }

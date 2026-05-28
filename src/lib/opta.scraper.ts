@@ -178,6 +178,61 @@ export async function fetchOptaLiveScores(options?: {
   }
 }
 
+/** Hämtar matcher i flera tidsfönster (en browser-session). Opta 404:ar på för stora offset. */
+export async function fetchOptaScoresHistory(options?: {
+  headed?: boolean;
+  /** Timmar bakåt från nu, t.ex. [-120, -336, -504] */
+  offsetHoursList?: number[];
+}): Promise<OptaLiveScores> {
+  const headed = options?.headed ?? true;
+  const offsets = options?.offsetHoursList ?? buildDefaultOptaOffsets();
+
+  const browser = await chromium.launch({
+    headless: !headed,
+    args: ["--disable-blink-features=AutomationControlled"],
+  });
+
+  const byId = new Map<string, OptaMatch>();
+  let context: BrowserContext | null = null;
+  try {
+    context = await createContext(browser, headed);
+    const page = await context.newPage();
+    await page.goto(SOCCER_URL, { waitUntil: "domcontentloaded", timeout: 90000 });
+    await waitPastBotCheck(page);
+
+    for (const offset of offsets) {
+      const apiUrl = `${OPTA_BASE}/api/en_GB/soccer/livescores?offset=${offset}`;
+      try {
+        const payload = await page.evaluate(async (url) => {
+          const r = await fetch(url, { credentials: "include" });
+          if (!r.ok) throw new Error(`Opta API ${r.status}`);
+          return r.json();
+        }, apiUrl);
+        for (const m of payload?.matches ?? []) {
+          const mapped = mapOptaMatch(m as Record<string, unknown>);
+          if (mapped.id) byId.set(mapped.id, mapped);
+        }
+      } catch {
+        /* vissa offset-intervall stöds inte — fortsätt */
+      }
+      await page.waitForTimeout(400);
+    }
+
+    await saveSession(context);
+    const matches = [...byId.values()];
+    return { fetchedAt: new Date().toISOString(), matches };
+  } finally {
+    await context?.close();
+    await browser.close();
+  }
+}
+
+function buildDefaultOptaOffsets(): number[] {
+  const offsets: number[] = [];
+  for (let h = -120; h >= -7200; h -= 168) offsets.push(h);
+  return offsets;
+}
+
 /** Hämtar JSON från valfri Opta API-path (relativ eller absolut). */
 export async function fetchOptaApi<T = unknown>(
   apiPath: string,

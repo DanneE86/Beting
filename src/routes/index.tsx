@@ -14,10 +14,11 @@ import {
   recommendSpikar,
   buildSystem,
 } from "@/lib/stryktipset.functions";
-import { BttsDisplay } from "@/components/BttsDisplay";
-import { MatchAnalysisDisplay } from "@/components/MatchAnalysisDisplay";
+import { FootballSimpleTip } from "@/components/FootballSimpleTip";
+import { pickTopPct } from "@/lib/football-tip";
+import { outcomeToTip } from "@/lib/match-outcome";
+import { pickOutcome } from "@/lib/poisson-model";
 import type { BttsCall } from "@/lib/prediction-meta";
-import type { MatchAnalysisSections } from "@/lib/match-analysis";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -776,126 +777,22 @@ function PredictionPanel({
     homeWinPct: number;
     drawPct: number;
     awayWinPct: number;
-    predictedScore: string;
-    confidence: string;
-    keyFactors: string[];
-    bettingTip: string;
     bttsCall?: BttsCall;
     bttsReason?: string;
-    valueBet?: string;
-    lineupNotes?: string;
-    lineupValueShift?: "ökat" | "minskat" | "oförändrat" | "okänt";
-    source?: "ai" | "espn-stat";
-    lineupReleased?: boolean;
-    missingHome?: string[];
-    missingAway?: string[];
-    matchAnalysis?: MatchAnalysisSections | null;
-    marketOdds?: {
-      decimalOdds: { home: number | null; draw: number | null; away: number | null };
-      marketProbPct: { home: number; draw: number; away: number };
-      books: number;
-    } | null;
-    marketLineMovement?: { summary: string; significant: boolean } | null;
   };
 }) {
-  const isValue = p.valueBet && /värde/i.test(p.valueBet) && !/inget/i.test(p.valueBet);
-  return (
-    <div className="mt-3 pt-3 border-t border-border space-y-3 text-sm">
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <Sparkles className="size-3 text-primary" />{" "}
-          {p.source === "espn-stat" ? "Statistikprognos (ESPN)" : "AI-prognos"}
-        </span>
-        <span>Säkerhet: {p.confidence}</span>
-      </div>
-      <ProbBar home={p.homeWinPct} draw={p.drawPct} away={p.awayWinPct} />
+  const outcome = pickOutcome(p.homeWinPct, p.drawPct, p.awayWinPct);
+  const tip = outcomeToTip(outcome);
+  const tipPct = pickTopPct(outcome, p.homeWinPct, p.drawPct, p.awayWinPct);
 
-      <div className="flex items-baseline justify-between">
-        <span className="text-xs text-muted-foreground">Troligt resultat</span>
-        <span className="font-display font-bold text-lg text-primary">
-          {p.predictedScore}
-        </span>
-      </div>
-      {p.marketOdds && (
-        <div className="rounded-md bg-secondary/40 border border-border px-3 py-2 text-xs space-y-1">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span>Marknadsodds</span>
-            <span className="text-[10px]">{p.marketOdds.books} bookmakers</span>
-          </div>
-          <div className="grid grid-cols-3 gap-2 tabular-nums">
-            <div className="text-center">
-              <div className="font-display font-bold">{p.marketOdds.decimalOdds.home?.toFixed(2) ?? "—"}</div>
-              <div className="text-[10px] text-muted-foreground">1 · {Math.round(p.marketOdds.marketProbPct.home)}%</div>
-            </div>
-            <div className="text-center">
-              <div className="font-display font-bold">{p.marketOdds.decimalOdds.draw?.toFixed(2) ?? "—"}</div>
-              <div className="text-[10px] text-muted-foreground">X · {Math.round(p.marketOdds.marketProbPct.draw)}%</div>
-            </div>
-            <div className="text-center">
-              <div className="font-display font-bold">{p.marketOdds.decimalOdds.away?.toFixed(2) ?? "—"}</div>
-              <div className="text-[10px] text-muted-foreground">2 · {Math.round(p.marketOdds.marketProbPct.away)}%</div>
-            </div>
-          </div>
-          {p.marketLineMovement?.summary && (
-            <div
-              className={`rounded border px-2 py-1 text-[11px] ${
-                p.marketLineMovement.significant
-                  ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                  : "border-border/60 bg-background/40 text-muted-foreground"
-              }`}
-            >
-              {p.marketLineMovement.summary}
-            </div>
-          )}
-        </div>
-      )}
-      {p.matchAnalysis ? (
-        <MatchAnalysisDisplay analysis={p.matchAnalysis} compact />
-      ) : (
-        <ul className="text-xs space-y-1 text-muted-foreground list-disc pl-4">
-          {p.keyFactors.map((f, i) => (
-            <li key={i}>{f}</li>
-          ))}
-        </ul>
-      )}
-      {p.bttsCall && (
-        <BttsDisplay call={p.bttsCall} reason={p.bttsReason} variant="panel" />
-      )}
-      {p.lineupNotes && (
-        <div className="rounded-md bg-secondary/60 border border-border px-3 py-2 text-xs">
-          <strong>Personal:</strong> {p.lineupNotes}
-        </div>
-      )}
-      {p.lineupReleased && p.lineupValueShift && p.lineupValueShift !== "oförändrat" && p.lineupValueShift !== "okänt" && (
-        <div
-          className={`rounded-md border px-3 py-2 text-xs font-medium ${
-            p.lineupValueShift === "ökat"
-              ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-              : "border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-          }`}
-        >
-          <strong>Spelvärde {p.lineupValueShift}</strong> efter officiella startelvor.
-          {(p.missingHome?.length || p.missingAway?.length) ? (
-            <span className="block mt-0.5 opacity-90">
-              Saknas: {[...(p.missingHome ?? []).map((n) => `H: ${n}`), ...(p.missingAway ?? []).map((n) => `B: ${n}`)].slice(0, 4).join(", ")}
-            </span>
-          ) : null}
-        </div>
-      )}
-      <div className="rounded-md bg-primary/10 border border-primary/30 px-3 py-2 text-xs">
-        <strong className="text-primary">Tips:</strong> {p.bettingTip}
-      </div>
-      {p.valueBet && (
-        <div
-          className={`rounded-md border px-3 py-2 text-xs ${
-            isValue
-              ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-              : "border-border bg-secondary/40 text-muted-foreground"
-          }`}
-        >
-          <strong>{isValue ? "💎 Spelvärde:" : "Spelvärde:"}</strong> {p.valueBet}
-        </div>
-      )}
+  return (
+    <div className="mt-3 pt-3 border-t border-border">
+      <FootballSimpleTip
+        tip={tip}
+        tipPct={tipPct}
+        bttsCall={p.bttsCall}
+        bttsReason={p.bttsReason}
+      />
     </div>
   );
 }
@@ -1519,6 +1416,7 @@ function LearningTab() {
                     <PredictionResultsTable
                       rows={lg.worstMisses as PredictionRow[]}
                       showBtts
+                      simple
                       dateFormat="date"
                       allowPending
                     />
@@ -1534,6 +1432,7 @@ function LearningTab() {
                     <PredictionResultsTable
                       rows={lg.bestHits as PredictionRow[]}
                       showBtts
+                      simple
                       dateFormat="date"
                       allowPending
                     />
@@ -1550,6 +1449,7 @@ function LearningTab() {
                       <PredictionResultsTable
                         rows={lg.allMatches as PredictionRow[]}
                         showBtts
+                        simple
                         dateFormat="date"
                         allowPending
                       />
@@ -1689,6 +1589,7 @@ function HistoryTab() {
                       <PredictionResultsTable
                         rows={rd.items as PredictionRow[]}
                         showBtts
+                        simple
                         dateFormat="date"
                       />
                     </Card>
@@ -1919,6 +1820,7 @@ function TodayTipsTab() {
                   <PredictionResultsTable
                     rows={rd.items as PredictionRow[]}
                     showBtts
+                    simple
                     dateFormat="time"
                     allowPending
                   />

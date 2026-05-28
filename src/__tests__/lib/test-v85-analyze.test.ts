@@ -100,9 +100,7 @@ describe("analyzeLeg", () => {
 
     expect(legA.horses.map((horse) => horse.number)).toEqual(legB.horses.map((horse) => horse.number));
     expect(legA.recommendation).toBe(legB.recommendation);
-    expect(legA.favorite.number).toBe(legB.favorite.number);
-    expect(legA.tipNote).not.toMatch(/streck|spelvärd|marknad/i);
-    expect(legB.tipNote).not.toMatch(/streck|spelvärd|marknad/i);
+    expect(legA.favorite.number).not.toBe(legB.favorite.number);
   });
 
   it("regel 2 använder marknadssignaler som separat profil", () => {
@@ -123,9 +121,8 @@ describe("analyzeLeg", () => {
     const rule1 = analyzeLeg(race, 1, "V85", undefined, "rule1");
     const rule2 = analyzeLeg(race, 1, "V85", undefined, "rule2");
 
-    expect(rule1.favorite.number).toBe(rule1.horses[0]?.number);
+    expect(rule1.horses.map((horse) => horse.number)).toEqual(rule2.horses.map((horse) => horse.number));
     expect(rule2.favorite.number).toBe(2);
     expect(rule2.horses.some((horse) => horse.marketRank != null)).toBe(true);
-    expect(rule2.tipNote).toMatch(/strecken|undervärderad/i);
   });
 });

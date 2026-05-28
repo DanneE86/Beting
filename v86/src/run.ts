@@ -93,8 +93,9 @@ export async function runV86Pipeline(argv = process.argv.slice(2)) {
   console.log(`Sparat: ${outFile}`);
 
   try {
-    const predictionId = await saveTravPrediction(snapshot);
+    const { id: predictionId, error } = await saveTravPrediction(snapshot);
     if (predictionId) console.log(`Historikrad sparad: ${predictionId}`);
+    else if (error) console.warn(`Historik: ${error}`);
   } catch (error) {
     console.warn("Kunde inte spara travhistorik från CLI:", (error as Error).message);
   }

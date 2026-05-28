@@ -22,6 +22,12 @@ import type { OptaMatch } from "./opta.scraper";
 import { findOptaMatch, formatOptaMatchSummary } from "./opta.utils";
 import { getCachedOptaMatches } from "./opta.server";
 import { applyProBettorAdjustments, buildProBettingAdvice } from "./pro-bettor-model";
+import {
+  applyFootballRulebookToProbs,
+  getActiveFootballRules,
+} from "./football-rules.server";
+import { formatFootballBettingTip, pickTopPct } from "./football-tip";
+import type { FootballRule } from "./football-rulebook";
 import { predictBtts } from "./btts-model";
 import { calibrationToAdjustments } from "./calibration";
 import {
@@ -418,6 +424,7 @@ function buildStatisticalPrediction(input: {
   awayStanding?: StandingRow;
   homeAbsenceReport?: ReturnType<typeof buildKeyAbsenceReport>;
   awayAbsenceReport?: ReturnType<typeof buildKeyAbsenceReport>;
+  footballRules?: FootballRule[];
 }) {
   const {
     homeName,
@@ -449,6 +456,7 @@ function buildStatisticalPrediction(input: {
     eventMeta,
     homeAbsenceReport,
     awayAbsenceReport,
+    footballRules = [],
   } = input;
 
   const leagueAvg =
@@ -547,6 +555,25 @@ function buildStatisticalPrediction(input: {
   );
   ({ homeWinPct, drawPct, awayWinPct } = pro.probs);
 
+  if (footballRules.length) {
+    const ruled = applyFootballRulebookToProbs(
+      { homeWinPct, drawPct, awayWinPct },
+      footballRules,
+      {
+        homePpg:
+          homeStanding && homeStanding.played > 0
+            ? homeStanding.pts / homeStanding.played
+            : undefined,
+        awayPpg:
+          awayStanding && awayStanding.played > 0
+            ? awayStanding.pts / awayStanding.played
+            : undefined,
+        leagueAvgGoals: leagueAvg,
+      },
+    );
+    ({ homeWinPct, drawPct, awayWinPct } = ruled.probs);
+  }
+
   const outcome = pickOutcome(homeWinPct, drawPct, awayWinPct);
 
   let confidence = deriveConfidence(homeWinPct, drawPct, awayWinPct);
@@ -604,8 +631,8 @@ function buildStatisticalPrediction(input: {
   );
   confidence = proAdvice.confidence;
 
-  const tipLabel = outcomeToTip(outcome);
-  const top = Math.max(homeWinPct, drawPct, awayWinPct);
+  const top = pickTopPct(outcome, homeWinPct, drawPct, awayWinPct);
+  const simpleBettingTip = formatFootballBettingTip(outcome, top);
 
   const btts = predictBtts({
     lamH: poisson.lamH,
@@ -645,53 +672,6 @@ function buildStatisticalPrediction(input: {
         ? "Startelvor släppta enligt ESPN."
         : "Startelvor ej släppta ännu.";
 
-  const matchAnalysis: MatchAnalysisSections | null = preMatchChecklist
-    ? buildTemplateMatchAnalysis({
-        homeName,
-        awayName,
-        checklist: preMatchChecklist,
-        homeGoalStats,
-        awayGoalStats,
-        homeStanding: homeStanding
-          ? {
-              rank: homeStanding.rank,
-              pts: homeStanding.pts,
-              gf: homeStanding.gf,
-              ga: homeStanding.ga,
-              played: homeStanding.played,
-            }
-          : undefined,
-        awayStanding: awayStanding
-          ? {
-              rank: awayStanding.rank,
-              pts: awayStanding.pts,
-              gf: awayStanding.gf,
-              ga: awayStanding.ga,
-              played: awayStanding.played,
-            }
-          : undefined,
-        bttsCall,
-        bttsReason: btts.reason,
-        seasonContext: seasonContext
-          ? {
-              home: { stakeLabel: seasonContext.home.stakeLabel, rank: seasonContext.home.rank },
-              away: { stakeLabel: seasonContext.away.stakeLabel, rank: seasonContext.away.rank },
-              motivatedSide: seasonContext.motivatedSide,
-            }
-          : null,
-        marketOdds: marketOdds
-          ? { marketProbPct: marketOdds.marketProbPct, decimalOdds: marketOdds.decimalOdds }
-          : null,
-        marketLineMovement: marketLineMovement?.summary ?? null,
-        modelPct: { home: homeWinPct, draw: drawPct, away: awayWinPct },
-        homeAbsenceScore: homeAbsenceScore,
-        awayAbsenceScore: awayAbsenceScore,
-        keyAbsencesHome: homeAbsenceReport?.keyAbsences.map((p) => p.name),
-        keyAbsencesAway: awayAbsenceReport?.keyAbsences.map((p) => p.name),
-        lineupReleased: lineups.released,
-      })
-    : null;
-
   return {
     homeWinPct,
     drawPct,
@@ -699,7 +679,7 @@ function buildStatisticalPrediction(input: {
     predictedScore,
     confidence,
     keyFactors: keyFactors.slice(0, 6),
-    bettingTip: proAdvice.bettingTip,
+    bettingTip: simpleBettingTip,
     bttsCall,
     bttsReason: btts.reason,
     valueBet: proAdvice.valueBet,
@@ -721,7 +701,7 @@ function buildStatisticalPrediction(input: {
         }
       : null,
     marketLineMovement,
-    matchAnalysis,
+    matchAnalysis: null,
     eventMeta,
   };
 }
@@ -959,6 +939,8 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
         ).catch(() => ({ home: null, away: null }))
       : { home: null, away: null };
 
+    const footballRules = await getActiveFootballRules().catch(() => []);
+
     const poissonBaselineInput = {
       homeName: data.homeName,
       awayName: data.awayName,
@@ -991,6 +973,7 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
       eventMeta,
       homeAbsenceReport,
       awayAbsenceReport,
+      footballRules,
     };
 
     if (!apiKey) {
@@ -1300,27 +1283,19 @@ Matchdata:\n${JSON.stringify(context, null, 2)}\n\nGe en betting-analys med ifyl
     // BTTS alltid från statistikmodellen — samma som enskild match & dagens tips
     parsed.bttsCall = statBaseline.bttsCall;
     parsed.bttsReason = statBaseline.bttsReason;
-    if (!parsed.matchAnalysis && statBaseline.matchAnalysis) {
-      parsed.matchAnalysis = statBaseline.matchAnalysis;
-    }
-    if (parsed.matchAnalysis && preMatchChecklist) {
-      const bttsFallback = buildBttsAnalysisSection({
-        homeName: data.homeName,
-        awayName: data.awayName,
-        checklist: preMatchChecklist,
-        homeGoalStats,
-        awayGoalStats,
-        homeStanding: homeStanding?.played
-          ? { played: homeStanding.played, gf: homeStanding.gf, ga: homeStanding.ga }
-          : undefined,
-        awayStanding: awayStanding?.played
-          ? { played: awayStanding.played, gf: awayStanding.gf, ga: awayStanding.ga }
-          : undefined,
-        bttsCall: parsed.bttsCall,
-        bttsReason: parsed.bttsReason,
-      });
-      parsed.matchAnalysis = ensureMatchAnalysisBtts(parsed.matchAnalysis, bttsFallback);
-    }
+    const aiOutcome = pickOutcome(parsed.homeWinPct, parsed.drawPct, parsed.awayWinPct);
+    parsed.bettingTip = formatFootballBettingTip(
+      aiOutcome,
+      pickTopPct(aiOutcome, parsed.homeWinPct, parsed.drawPct, parsed.awayWinPct),
+    );
+    parsed.matchAnalysis = {
+      grundlaggande: "",
+      btts: "",
+      oneXtwo: "",
+      h2h: "",
+      lagnyheter: "",
+      ovrigt: "",
+    };
     parsed.predictedScore = fixBttsScoreCoherence(
       parsed.predictedScore,
       parsed.bttsCall,
@@ -1349,13 +1324,13 @@ Matchdata:\n${JSON.stringify(context, null, 2)}\n\nGe en betting-analys med ifyl
       round: data.round ?? null,
       bttsCall: parsed.bttsCall,
       bttsReason: parsed.bttsReason,
-      matchAnalysis: parsed.matchAnalysis ?? null,
+      matchAnalysis: null,
       marketOdds,
     }).catch((e) => console.error("savePrediction error", e));
 
-
     return {
       ...parsed,
+      matchAnalysis: null,
       source: "ai" as const,
       lineupReleased: lineups.released,
       missingHome,

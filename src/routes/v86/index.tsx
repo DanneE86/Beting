@@ -30,9 +30,16 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { rowPriceKr } from "../../../v86/src/game-types";
+import { LegScratchedHorses } from "@/components/LegScratchedHorses";
+import {
+  BiggestRiskNote,
+  LegHitPctBadge,
+  LegTipHitNote,
+  SystemHitOutlookSummary,
+} from "@/components/SystemHitOutlook";
 
 export const Route = createFileRoute("/v86/")({
-  component: Regel5DefaultPage,
+  component: Regel6DefaultPage,
 });
 
 export type TravRuleDashboardProps = {
@@ -43,13 +50,21 @@ export type TravRuleDashboardProps = {
   extraIntro?: ReactNode;
 };
 
-function Regel5DefaultPage() {
+function Regel6DefaultPage() {
   return (
     <TravRuleDashboardPage
-      ruleId="rule5"
-      title="Regel 5: målstyrd plusstrategi"
-      description="Regel 5 prioriterar månadsstabil plusprofil med målet minst +10 000 kr per månad, samtidigt som den bibehåller chans på stora utdelningar över 100 000 kr och miljonutfall."
-      badgeText="Standardregel"
+      ruleId="rule6"
+      title="Regel 6: förbättrad plusstrategi"
+      description="Regel 6 prioriterar månadsstabil plusprofil med målet minst +10 000 kr per månad, samtidigt som den bibehåller chans på stora utdelningar över 100 000 kr och miljonutfall."
+      badgeText="Aktiv regel"
+      extraIntro={
+        <Card className="border-[#1e3d2a] bg-[#111c16] p-4 shadow-none">
+          <p className="text-sm text-[#b8f0d0]">
+            Tidigare regelprofiler (1, 2 och 5) gav samma rank och system som denna regel i praktiken.
+            Endast Regel 6 visas nu — med högre utdelningsmål vid auto-budget.
+          </p>
+        </Card>
+      }
     />
   );
 }
@@ -412,7 +427,7 @@ export function TravRuleDashboardPage({
     () => (snapshot ? formatMarks(snapshot) : ""),
     [snapshot],
   );
-  const showMarketView = ruleId === "rule2" || ruleId === "rule5" || ruleId === "rule6";
+  const showMarketView = ruleId !== "rule1";
   const dataModelRows = [
     {
       label: "Form och nivå",
@@ -654,7 +669,7 @@ export function TravRuleDashboardPage({
 
           <Card className="border-[#2d6b45] bg-[#13261c] p-4 shadow-none">
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
+              <div className="min-w-0 flex-1">
                 <h2 className="text-lg font-semibold text-[#d4f5e2]">
                   System {snapshot.system.costKr.toFixed(0)} kr
                 </h2>
@@ -672,7 +687,12 @@ export function TravRuleDashboardPage({
                     Autoförslag: {snapshot.meta.recommendedPlay.reason}
                   </p>
                 )}
+                <BiggestRiskNote outlook={snapshot.system.hitOutlook} />
               </div>
+              <SystemHitOutlookSummary
+                outlook={snapshot.system.hitOutlook}
+                gameType={snapshot.game.type}
+              />
               <Button
                 size="sm"
                 variant="outline"
@@ -684,32 +704,43 @@ export function TravRuleDashboardPage({
               </Button>
             </div>
             <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              {snapshot.system.selections.map((s) => (
+              {snapshot.system.selections.map((s) => {
+                const raceForLeg = snapshot.raceData?.find((race) => race.leg === s.leg);
+                return (
                 <div
                   key={s.leg}
                   className="rounded-lg border border-[#1e3d2a] bg-[#0c1410] px-3 py-2"
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-medium text-[#7fa892]">
                       Avd {s.leg}
                     </span>
-                    <Badge
-                      variant="outline"
-                      className="border-[#2d6b45] text-[10px] text-[#5ec98a]"
-                    >
-                      {s.type}
-                    </Badge>
+                    <div className="flex items-center gap-1.5">
+                      <LegHitPctBadge outlook={snapshot.system.hitOutlook} leg={s.leg} />
+                      <Badge
+                        variant="outline"
+                        className="border-[#2d6b45] text-[10px] text-[#5ec98a]"
+                      >
+                        {s.type}
+                      </Badge>
+                    </div>
                   </div>
                   <p className="mt-1 font-mono text-lg text-[#d4f5e2]">
                     {s.picks.join(", ")}
                   </p>
+                  <LegScratchedHorses
+                    variant="compact"
+                    starts={raceForLeg?.starts}
+                    scratchingNumbers={raceForLeg?.scratchings}
+                  />
                   {s.note && (
                     <p className="mt-1 text-[11px] leading-snug text-[#7fa892]">
                       {s.note}
                     </p>
                   )}
                 </div>
-              ))}
+              );
+              })}
             </div>
           </Card>
 
@@ -742,31 +773,46 @@ export function TravRuleDashboardPage({
             {snapshot.legs.map((leg) => {
               const showAll = Boolean(showAllLegs[leg.leg]);
               const visibleHorses = showAll ? leg.horses : leg.horses.slice(0, 6);
+              const raceDataForLeg = snapshot.raceData?.find((race) => race.leg === leg.leg);
+              const legSelection = snapshot.system.selections.find((s) => s.leg === leg.leg);
+              const tipPicks = legSelection?.picks;
               return (
                 <Card
                   key={leg.leg}
                   className="border-[#1e3d2a] bg-[#111c16] p-4 shadow-none"
                 >
-                  <div className="mb-3 flex items-center justify-between">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <h3 className="font-medium text-[#d4f5e2]">
                       Avd {leg.leg}
                       {leg.raceName ? ` — ${leg.raceName}` : ""}
                     </h3>
-                    <Badge
-                      variant="outline"
-                      className="border-[#1e3d2a] text-[#7fa892] uppercase"
-                    >
-                      {leg.recommendation}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <LegHitPctBadge outlook={snapshot.system.hitOutlook} leg={leg.leg} />
+                      <Badge
+                        variant="outline"
+                        className="border-[#1e3d2a] text-[#7fa892] uppercase"
+                      >
+                        {leg.recommendation}
+                      </Badge>
+                    </div>
                   </div>
+                  <LegTipHitNote
+                    outlook={snapshot.system.hitOutlook}
+                    leg={leg.leg}
+                    picks={tipPicks}
+                  />
                   {leg.tipNote && (
                     <p className="mb-2 text-xs text-[#7fa892]">{leg.tipNote}</p>
                   )}
+                  <LegScratchedHorses
+                    starts={raceDataForLeg?.starts}
+                    scratchingNumbers={raceDataForLeg?.scratchings}
+                  />
                   <ul className="space-y-1">
                     {visibleHorses.map((h) => {
                       const key = `${leg.leg}-${h.number}`;
                       const open = expandedHorse === key;
-                      const raceDataForLeg = snapshot.raceData?.find((race) => race.leg === leg.leg);
+                      const isPicked = tipPicks?.includes(h.number) ?? false;
                       const startData = raceDataForLeg?.starts?.find((start) => start.number === h.number);
                       const tsProfile = startData?.travsportProfile ?? null;
                       const bestKm = tsProfile ? bestKmTimeFromTravsport(tsProfile.starts ?? []) : null;
@@ -868,14 +914,24 @@ export function TravRuleDashboardPage({
                             <button
                               type="button"
                               onClick={() => setExpandedHorse(open ? null : key)}
-                              className="flex w-full items-center justify-between rounded px-1 py-1 text-left text-sm hover:bg-[#1a2e22]"
+                              className={`flex w-full items-center justify-between rounded px-1 py-1 text-left text-sm hover:bg-[#1a2e22] ${isPicked ? "bg-[#1a2e22]/80 ring-1 ring-[#2d6b45]" : ""}`}
                             >
                               <span className="text-[#e8f0ea]">
                                 <span className="font-mono text-[#5ec98a]">{h.number}.</span>{" "}
                                 {h.name}
+                                {isPicked ? (
+                                  <span className="ml-1 text-[10px] font-medium text-[#b8f0d0]">
+                                    · markering
+                                  </span>
+                                ) : null}
                                 <span className="ml-1 text-[10px] text-[#5ec98a]">
                                   {(h.combinedScore * 100).toFixed(0)}%
                                 </span>
+                                {h.estimatedWinPct != null ? (
+                                  <span className="ml-1 text-[10px] text-[#7fa892]">
+                                    · modell {h.estimatedWinPct.toFixed(0)}%
+                                  </span>
+                                ) : null}
                               </span>
                               <span className="tabular-nums text-[#7fa892]">
                                 {betText ? `${betText} · ${winText}` : winText}

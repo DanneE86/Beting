@@ -28,13 +28,14 @@ function horse(number: number, name: string, combinedScore: number): ScoredHorse
 }
 
 describe("trav rules", () => {
-  it("normaliserar okända regel-id till Regel 1", () => {
-    expect(normalizeTravRuleId()).toBe("rule1");
+  it("normaliserar okända regel-id till Regel 6", () => {
+    expect(normalizeTravRuleId()).toBe("rule6");
+    expect(normalizeTravRuleId("rule1")).toBe("rule6");
     expect(normalizeTravRuleId("rule2")).toBe("rule2");
     expect(normalizeTravRuleId("rule5")).toBe("rule5");
     expect(normalizeTravRuleId("rule6")).toBe("rule6");
-    expect(normalizeTravRuleId("rule4")).toBe("rule1");
-    expect(normalizeTravRuleId("något-annat")).toBe("rule1");
+    expect(normalizeTravRuleId("rule4")).toBe("rule6");
+    expect(normalizeTravRuleId("något-annat")).toBe("rule6");
   });
 
   it("visar att Regel 3 saknar expertfält tills källor är kopplade", () => {

@@ -3,7 +3,10 @@ import { Badge } from "@/components/ui/badge";
 import { Brain } from "lucide-react";
 import { MatchDateTime } from "@/components/MatchDateTime";
 import { BttsDisplay } from "@/components/BttsDisplay";
+import { FootballSimpleTip } from "@/components/FootballSimpleTip";
 import { extractMatchAnalysis, MatchAnalysisDisplay } from "@/components/MatchAnalysisDisplay";
+import { pickTopPct } from "@/lib/football-tip";
+import { tipToOutcome, type TipLabel } from "@/lib/match-outcome";
 import { extractBtts } from "@/lib/prediction-meta";
 import { parseBttsReason } from "@/lib/btts-model";
 import { outcomeToTip, isExactScore } from "@/lib/match-outcome";
@@ -23,6 +26,8 @@ type Props = {
   leagueNameOf?: (id: string) => string;
   /** Visa "Väntar"-badge när actual_outcome saknas (annars antas resultat finnas) */
   allowPending?: boolean;
+  /** Fotboll: bara tips + BTTS (döljer pred/conf och långa analyser) */
+  simple?: boolean;
 };
 
 export function PredictionResultsTable({
@@ -32,14 +37,13 @@ export function PredictionResultsTable({
   dateFormat = "date",
   leagueNameOf,
   allowPending = false,
+  simple = false,
 }: Props) {
-  // Räkna kolumner dynamiskt: Match, [Liga], Tips, [Båda mål], Pred, Conf, Facit, Status
   const cols =
     2 /* match + tips */ +
     (showLeague ? 1 : 0) +
     (showBtts ? 1 : 0) +
-    1 /* pred */ +
-    1 /* conf */ +
+    (simple ? 0 : 2) /* pred + conf */ +
     1 /* facit */ +
     1; /* status */
 
@@ -52,8 +56,8 @@ export function PredictionResultsTable({
             {showLeague && <th className="px-2 py-2">Liga</th>}
             <th className="px-2 py-2">Tips</th>
             {showBtts && <th className="px-2 py-2">Båda mål</th>}
-            <th className="px-2 py-2">Pred.</th>
-            <th className="px-2 py-2">Conf.</th>
+            {!simple && <th className="px-2 py-2">Pred.</th>}
+            {!simple && <th className="px-2 py-2">Conf.</th>}
             <th className="px-2 py-2">Facit</th>
             <th className="px-2 py-2 text-right pr-4">Status</th>
           </tr>
@@ -117,12 +121,16 @@ export function PredictionResultsTable({
                       <BttsDisplay call={btts.call} variant="badge" />
                     </td>
                   )}
-                  <td className="text-center px-2 py-2 tabular-nums text-xs text-muted-foreground">
-                    {r.predicted_score ?? "—"}
-                  </td>
-                  <td className="text-center px-2 py-2 text-xs text-muted-foreground">
-                    {r.confidence ?? "—"}
-                  </td>
+                  {!simple && (
+                    <td className="text-center px-2 py-2 tabular-nums text-xs text-muted-foreground">
+                      {r.predicted_score ?? "—"}
+                    </td>
+                  )}
+                  {!simple && (
+                    <td className="text-center px-2 py-2 text-xs text-muted-foreground">
+                      {r.confidence ?? "—"}
+                    </td>
+                  )}
                   <td className="text-center px-2 py-2 tabular-nums">
                     {r.actual_outcome
                       ? `${r.actual_home_score}-${r.actual_away_score}`
@@ -163,7 +171,23 @@ export function PredictionResultsTable({
                   </td>
                 </tr>
                 {r.actual_outcome ? (
-                  <PostmortemRow postmortem={r.postmortem} colSpan={cols} eventDate={r.event_date ?? r.created_at ?? null} />
+                  simple ? null : (
+                    <PostmortemRow
+                      postmortem={r.postmortem}
+                      colSpan={cols}
+                      eventDate={r.event_date ?? r.created_at ?? null}
+                    />
+                  )
+                ) : simple ? (
+                  <SimpleTipRow
+                    tip={tip}
+                    homePct={r.home_win_pct}
+                    drawPct={r.draw_pct}
+                    awayPct={r.away_win_pct}
+                    bttsCall={btts.call}
+                    bttsReason={btts.reason}
+                    colSpan={cols}
+                  />
                 ) : (
                   <PrematchAnalysisRow
                     keyFactors={r.key_factors}
@@ -185,6 +209,46 @@ export function PredictionResultsTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+function SimpleTipRow({
+  tip,
+  homePct,
+  drawPct,
+  awayPct,
+  bttsCall,
+  bttsReason,
+  colSpan,
+}: {
+  tip: string;
+  homePct?: number | string | null;
+  drawPct?: number | string | null;
+  awayPct?: number | string | null;
+  bttsCall: "ja" | "nej" | "osäker" | null;
+  bttsReason: string | null;
+  colSpan: number;
+}) {
+  const h = Number(homePct);
+  const d = Number(drawPct);
+  const a = Number(awayPct);
+  const outcome = tipToOutcome(tip);
+  const tipPct =
+    outcome && isFinite(h) && isFinite(d) && isFinite(a)
+      ? pickTopPct(outcome, h, d, a)
+      : null;
+
+  return (
+    <tr className="border-t border-border/30 bg-muted/10">
+      <td colSpan={colSpan} className="px-3 py-3 sm:px-4">
+        <FootballSimpleTip
+          tip={tip as TipLabel}
+          tipPct={tipPct}
+          bttsCall={bttsCall}
+          bttsReason={bttsReason}
+        />
+      </td>
+    </tr>
   );
 }
 

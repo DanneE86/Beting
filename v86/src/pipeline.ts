@@ -16,6 +16,7 @@ import {
   recommendDdPlay,
   recommendMainPoolPlay,
 } from "./system-builder";
+import { computeSystemHitOutlook } from "./system-probability";
 import { fetchTravsportForGame } from "./travsport/fetch-game";
 import type { TravsportIndex } from "./travsport/types";
 import {
@@ -250,6 +251,7 @@ export function buildSnapshotRaceData(
     distance: race.distance,
     startMethod: race.startMethod,
     result: race.result,
+    scratchings: race.result?.scratchings,
     pools: race.pools,
     starts: (race.starts ?? []).map((start) => {
       const travsportProfile = start.horse?.id ? travsportIndex?.[start.horse.id] ?? null : null;
@@ -376,12 +378,16 @@ export async function buildSnapshotFromGame(
         ? (input.budgetKr ?? defaultBudgetKr(gameType))
         : defaultBudgetKr(gameType));
   const targetMinPayoutKr = recommendedPlay?.targetMinPayoutKr ?? floorMinPayoutKr;
-  const system =
+  const builtSystem =
     recommendedPlay?.system ??
     buildSystem(game.id, gameType, legs, {
       budgetKr,
       targetMinPayoutKr,
     });
+  const system = {
+    ...builtSystem,
+    hitOutlook: computeSystemHitOutlook(legs, builtSystem),
+  };
 
   const firstRaceStart = game.races[0]?.startTime ?? game.races[0]?.scheduledStartTime;
 

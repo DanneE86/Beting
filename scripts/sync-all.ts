@@ -18,8 +18,13 @@ import { formatOptaMatchSummary } from "../src/lib/opta.utils";
 import { fetchOptaLiveScores } from "../src/lib/opta.scraper";
 import { createScriptSupabase, loadEnv } from "../src/lib/script-env";
 import { runV86Pipeline } from "../v86/src/run";
+import {
+  runFootballAnalyze,
+  runFootballIngest,
+  runFootballRulebookTrain,
+} from "../src/lib/football-intel-pipeline";
 
-const STEP_IDS = ["opta", "v86", "backfill", "train"] as const;
+const STEP_IDS = ["opta", "v86", "backfill", "train", "football"] as const;
 type StepId = (typeof STEP_IDS)[number];
 
 const BACKFILL_YEARS = 3;
@@ -78,6 +83,7 @@ Steg:
   v86       ATG-spel → v86/output/*.json
   backfill  ESPN matchhistorik → archived_seasons (lång)
   train     Ligamodeller från arkiv → league_model_params
+  football  Ingest sept+ → analys → regelbok (npm run football:pipeline)
 `);
 }
 
@@ -162,11 +168,20 @@ async function runTrain(): Promise<string> {
   return `${trained} ligor (${totalMatches} matcher granskade) + football-global`;
 }
 
+async function runFootball(): Promise<string> {
+  const supabase = createScriptSupabase();
+  const ing = await runFootballIngest(supabase);
+  const an = await runFootballAnalyze(supabase);
+  const rb = await runFootballRulebookTrain(supabase);
+  return `ingest ${ing.totalMatches}, analyze ${an.analyzed}, regelbok v${rb.version} (${(rb.backtest.rulebookHitRate * 100).toFixed(1)}%)`;
+}
+
 const STEP_RUNNERS: Record<StepId, { label: string; run: () => Promise<string> }> = {
   opta: { label: "Opta livescores → Supabase", run: runOpta },
   v86: { label: "V86 / ATG → v86/output", run: runV86 },
   backfill: { label: "ESPN-arkiv → Supabase", run: runBackfill },
   train: { label: "Träna ligamodeller", run: runTrain },
+  football: { label: "Fotboll ingest + analys + regelbok", run: runFootball },
 };
 
 async function runStep(id: StepId): Promise<StepResult> {

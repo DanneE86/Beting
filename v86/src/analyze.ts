@@ -1,6 +1,7 @@
 import { activeStarts, betDistribution, winOdds } from "./atg-api";
 import { scoreStartFull } from "./scoring";
 import type { TravsportIndex } from "./travsport/types";
+import { normalizeTravRuleId } from "./rules";
 import type {
   AtgGame,
   AtgRace,
@@ -9,6 +10,7 @@ import type {
   LegAnalysis,
   PoolGameType,
   ScoredHorse,
+  TravRuleId,
 } from "./types";
 
 function mapChecklist(
@@ -29,12 +31,13 @@ function scoreStart(
   race: AtgRace,
   field: AtgStart[],
   gameType: PoolGameType,
-  travsportIndex?: TravsportIndex,
+  travsportIndex: TravsportIndex | undefined,
+  ruleId: TravRuleId,
 ): ScoredHorse {
   const bd = betDistribution(start, gameType);
   const winPct = (start.horse?.statistics?.life?.winPercentage ?? 0) / 100;
   const eps = (start.horse?.statistics?.life?.earningsPerStart ?? 0) / 100;
-  const full = scoreStartFull(start, race, field, gameType, travsportIndex);
+  const full = scoreStartFull(start, race, field, gameType, travsportIndex, ruleId);
 
   const formScore = full.combinedScore * 100;
   const valueScore = bd > 0 ? full.combinedScore / (bd / 100) : full.combinedScore * 2;
@@ -89,6 +92,90 @@ function projectedFinishLabel(rank: number, fieldSize: number): string {
   return "outsider";
 }
 
+function marketStreckLabel(marketRank: number): string | null {
+  if (marketRank === 1) return "Streckfavorit";
+  if (marketRank === 2) return "Tvåa på strecken";
+  if (marketRank === 3) return "Trea på strecken";
+  return null;
+}
+
+function modelPositionLabel(rank: number, fieldSize: number): string {
+  if (rank === 1) return "Modellens förstahäst";
+  if (rank <= 3) return `Modellens ${rank}:a`;
+  if (rank <= Math.max(5, Math.ceil(fieldSize / 2))) return `Modell ${rank}:a — utanför topp tre`;
+  return `Modell ${rank}:a — kräver gunstig loppbild`;
+}
+
+function streckShareNote(horse: ScoredHorse): string | null {
+  if (horse.betDistribution <= 0) return null;
+  return `${horse.betDistribution.toFixed(0)}% av strecken`;
+}
+
+function modelWinShareNote(horse: ScoredHorse): string | null {
+  if (horse.estimatedWinPct == null) return null;
+  return `modell ~${horse.estimatedWinPct.toFixed(0)}%`;
+}
+
+function weakChecklistLabels(horse: ScoredHorse, limit = 2): string[] {
+  return [...horse.horseChecklist, ...horse.driverChecklist]
+    .filter((item) => item.available && item.score < 0.42)
+    .sort((a, b) => a.score - b.score)
+    .map((item) => item.label.toLowerCase())
+    .slice(0, limit);
+}
+
+function reasonsMarketAboveModel(horse: ScoredHorse): string[] {
+  const reasons: string[] = [];
+  const edge = horse.valueEdgePct ?? 0;
+
+  if (edge <= -4) {
+    reasons.push(`modellen ser lägre vinstchans (−${Math.abs(edge).toFixed(0)}%-enheter mot strecken)`);
+  }
+  if (horse.formTrend === "nedåtgående") reasons.push("sjunkande formkurva");
+  else if (horse.formTrend === "okänd") reasons.push("oklar formbild");
+
+  const weakLabels = weakChecklistLabels(horse);
+  for (const label of weakLabels) {
+    if (!reasons.some((reason) => reason.includes(label))) reasons.push(label);
+  }
+
+  if (horse.driverScore > horse.horseScore + 0.1) {
+    reasons.push("strecken kan drivas av kusk snarare än hästdata");
+  }
+
+  if (reasons.length === 0 && edge < 0) {
+    reasons.push("marginellt lägre kapacitet i modellen än streckbilden");
+  }
+
+  return reasons.slice(0, 3);
+}
+
+function reasonsModelAboveMarket(horse: ScoredHorse): string[] {
+  const reasons: string[] = [];
+  const edge = horse.valueEdgePct ?? 0;
+
+  if (edge >= 4) {
+    reasons.push(`modellen ser högre vinstchans (+${edge.toFixed(0)}%-enheter mot strecken)`);
+  }
+  if (horse.formTrend === "stigande" || horse.formTrend === "toppad") reasons.push("stigande formkurva");
+  if (horse.isSkrellCandidate) reasons.push("spelvärde mot strecken");
+
+  const strongLabels = [...horse.horseChecklist, ...horse.driverChecklist]
+    .filter((item) => item.available && item.score >= 0.72)
+    .sort((a, b) => b.score - a.score)
+    .map((item) => item.label.toLowerCase())
+    .slice(0, 2);
+  for (const label of strongLabels) {
+    if (!reasons.some((reason) => reason.includes(label))) reasons.push(label);
+  }
+
+  if (reasons.length === 0 && edge > 0) {
+    reasons.push("högre samlad kapacitet i modellen än streckbilden");
+  }
+
+  return reasons.slice(0, 3);
+}
+
 function buildHorseAnalystComment(
   horse: ScoredHorse,
   rank: number,
@@ -96,26 +183,56 @@ function buildHorseAnalystComment(
 ): string {
   const parts: string[] = [];
   const marketRank = horse.marketRank ?? rank;
-  const edge = horse.valueEdgePct ?? 0;
+  const rankGap = rank - marketRank;
+  const isMarketTop3 = marketRank <= 3;
+  const streckLabel = marketStreckLabel(marketRank);
+  const streckShare = streckShareNote(horse);
+  const modelShare = modelWinShareNote(horse);
 
-  if (rank === 1) parts.push("Modellens förstahäst");
-  else if (rank <= 3) parts.push(`Tidig rank ${rank}`);
-  else parts.push("Behöver klaff på vägen");
-
-  if (edge >= 5) parts.push("spelvärd mot strecken");
-  else if (edge <= -5) parts.push("överstreckad just nu");
-
-  if (horse.formTrend === "stigande" || horse.formTrend === "toppad") parts.push("positiv formkurva");
-  else if (horse.formTrend === "nedåtgående") parts.push("formfrågetecken");
-
-  if (marketRank - rank >= 2) parts.push("modellen tror mer än marknaden");
-  else if (rank - marketRank >= 2) parts.push("marknaden tror mer än modellen");
-
-  if (horse.highlights.length > 0) {
-    parts.push(horse.highlights[0]!);
+  if (streckLabel) {
+    parts.push(streckShare ? `${streckLabel} (${streckShare})` : streckLabel);
   }
 
-  const uniqueParts = parts.filter((part, index) => parts.indexOf(part) === index).slice(0, fieldSize <= 8 ? 2 : 3);
+  parts.push(modelPositionLabel(rank, fieldSize));
+
+  if (modelShare && horse.betDistribution > 0) {
+    parts.push(modelShare);
+  }
+
+  if (isMarketTop3 && rankGap >= 2) {
+    const reasons = reasonsMarketAboveModel(horse);
+    if (reasons.length > 0) {
+      parts.push(`folket högre än modellen: ${reasons.join(", ")}`);
+    } else {
+      parts.push("folket rankar högre — modellen ser inte lika stark ut");
+    }
+  } else if (isMarketTop3 && rankGap === 1) {
+    const reasons = reasonsMarketAboveModel(horse);
+    if (reasons.length > 0) {
+      parts.push(`nära strecktoppen men modellen en placering lägre: ${reasons[0]}`);
+    }
+  } else if (rankGap <= -2) {
+    const reasons = reasonsModelAboveMarket(horse);
+    if (reasons.length > 0) {
+      parts.push(`modellen högre än strecken: ${reasons.join(", ")}`);
+    }
+  } else if (!isMarketTop3 && rank <= 3) {
+    parts.push("stark i modellen men inte bland strecktoppen");
+  }
+
+  if (horse.formTrend === "stigande" || horse.formTrend === "toppad") {
+    if (!parts.some((part) => part.includes("form"))) parts.push("positiv formkurva");
+  } else if (horse.formTrend === "nedåtgående" && rankGap < 2) {
+    parts.push("formen viker");
+  }
+
+  const highlight = horse.highlights.find(
+    (item) => !parts.some((part) => part.toLowerCase().includes(item.toLowerCase().slice(0, 12))),
+  );
+  if (highlight) parts.push(highlight);
+
+  const maxParts = isMarketTop3 ? 3 : fieldSize <= 8 ? 2 : 3;
+  const uniqueParts = parts.filter((part, index) => parts.indexOf(part) === index).slice(0, maxParts);
   return uniqueParts.join(" · ");
 }
 
@@ -124,9 +241,11 @@ export function analyzeLeg(
   legIndex: number,
   gameType: PoolGameType,
   travsportIndex?: TravsportIndex,
+  ruleId: TravRuleId = "rule6",
 ): LegAnalysis {
+  const normalizedRuleId = normalizeTravRuleId(ruleId);
   const field = activeStarts(race);
-  const rawHorses = field.map((s) => scoreStart(s, race, field, gameType, travsportIndex));
+  const rawHorses = field.map((s) => scoreStart(s, race, field, gameType, travsportIndex, normalizedRuleId));
   const totalCombined = rawHorses.reduce((sum, horse) => sum + Math.max(0.01, horse.combinedScore), 0);
   const fallbackMarketPct = rawHorses.length > 0 ? 100 / rawHorses.length : 0;
   const marketRankByNumber = new Map(
@@ -226,8 +345,15 @@ export function analyzeLeg(
   };
 }
 
-export function analyzeGame(game: AtgGame, travsportIndex?: TravsportIndex): LegAnalysis[] {
-  return game.races.map((race, i) => analyzeLeg(race, i + 1, game.type, travsportIndex));
+export function analyzeGame(
+  game: AtgGame,
+  travsportIndex?: TravsportIndex,
+  ruleId?: TravRuleId,
+): LegAnalysis[] {
+  const normalizedRuleId = normalizeTravRuleId(ruleId);
+  return game.races.map((race, i) =>
+    analyzeLeg(race, i + 1, game.type, travsportIndex, normalizedRuleId),
+  );
 }
 
 export function pickBestSkrellLeg(legs: LegAnalysis[]): LegAnalysis | null {

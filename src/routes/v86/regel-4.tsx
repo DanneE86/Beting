@@ -14,8 +14,7 @@ function Regel4Page() {
         Den här profilen är bortplockad eftersom den presterat sämre. Använd Regel 1 eller Regel 2.
       </p>
       <div className="mt-3 flex gap-3 text-sm">
-        <Link to="/v86" className="text-[#5ec98a] hover:underline">Gå till Regel 1</Link>
-        <Link to="/v86/regel-2" className="text-[#5ec98a] hover:underline">Gå till Regel 2</Link>
+        <Link to="/v86" className="text-[#5ec98a] hover:underline">Gå till Regel 6</Link>
       </div>
     </Card>
   );

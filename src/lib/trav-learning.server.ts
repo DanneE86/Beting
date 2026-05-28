@@ -630,10 +630,19 @@ async function nextTravPredictionVersion(gameId: string, gameType: PoolGameType)
   return (count ?? 0) + 1;
 }
 
+export type SaveTravPredictionResult = { id: string | null; error: string | null };
+
 export async function saveTravPrediction(
   snapshot: FetchSnapshot,
   options: SaveTravPredictionOptions = {},
-): Promise<string | null> {
+): Promise<SaveTravPredictionResult> {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return {
+      id: null,
+      error: "SUPABASE_SERVICE_ROLE_KEY saknas i Worker (kör: npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY)",
+    };
+  }
+
   const ruleId = ruleIdFromSnapshot(snapshot);
   const learningPrompt = await getTravLearningPrompt(snapshot.game.type, ruleId).catch(() => null);
   const source = options.source ?? snapshot.meta?.source ?? "live";
@@ -669,9 +678,9 @@ export async function saveTravPrediction(
         .eq("id", existingId);
       if (error) {
         console.error("saveTravPrediction update failed", error);
-        return null;
+        return { id: null, error: error.message };
       }
-      return existingId;
+      return { id: existingId, error: null };
     }
   }
   const { data, error } = await supabaseAdmin
@@ -681,9 +690,12 @@ export async function saveTravPrediction(
     .single();
   if (error) {
     console.error("saveTravPrediction insert failed", error);
-    return null;
+    return { id: null, error: error.message };
   }
-  return data?.id ?? null;
+  if (!data?.id) {
+    return { id: null, error: "Insert lyckades men inget id returnerades" };
+  }
+  return { id: data.id, error: null };
 }
 
 async function resolveTravPredictionRow(
@@ -943,7 +955,7 @@ export async function backtestTravHistory(input: {
         },
       };
 
-      const rowId = await saveTravPrediction(snapshotWithMeta, {
+      const { id: rowId } = await saveTravPrediction(snapshotWithMeta, {
         source: "historical-backtest",
         backtestDate: parseDateOnly(gameDateOf(snapshot) ?? date),
         dedupe: true,

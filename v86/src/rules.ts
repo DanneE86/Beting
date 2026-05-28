@@ -1,6 +1,6 @@
 import type { PoolGameType, TravRuleCoverageGroup, TravRuleId } from "./types";
 
-export const DEFAULT_TRAV_RULE_ID: TravRuleId = "rule1";
+export const DEFAULT_TRAV_RULE_ID: TravRuleId = "rule6";
 
 export const TRAV_RULES: Record<
   TravRuleId,

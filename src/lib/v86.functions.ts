@@ -62,7 +62,7 @@ export const v86Analyze = createServerFn({ method: "POST" })
     const snapshot = await buildSnapshot({
       date: data.date,
       gameId: data.gameId,
-      ruleId: data.ruleId,
+      ruleId: data.ruleId ?? DEFAULT_TRAV_RULE_ID,
       budgetKr: data.budgetKr,
       targetMinPayoutKr: data.targetMinPayoutKr,
       autoBudget: data.autoBudget,
@@ -72,22 +72,28 @@ export const v86Analyze = createServerFn({ method: "POST" })
       travsportAllowStaleCache: true,
     });
     const ruleId = snapshot.meta?.rule?.id ?? normalizeTravRuleId(data.ruleId);
-    const [predictionId, learningPromptText] = await Promise.all([
-      saveTravPrediction(snapshot).catch((error) => {
-        console.warn("saveTravPrediction failed:", (error as Error).message);
-        return null;
-      }),
+    const [saveResult, learningPromptText] = await Promise.all([
+      saveTravPrediction(snapshot).catch((error) => ({
+        id: null as string | null,
+        error: (error as Error).message,
+      })),
       getTravLearningPrompt(snapshot.game.type, ruleId).catch(() => null),
     ]);
+    const predictionId = saveResult.id;
+    const historySaveError = saveResult.error
+      ? saveResult.error.includes("Invalid API key") || saveResult.error.includes("JWT")
+        ? `${saveResult.error} — kontrollera att du satte service_role (inte anon/publishable) i wrangler secret.`
+        : saveResult.error
+      : predictionId
+        ? null
+        : "Kunde inte spara i historik (okänt fel).";
     return {
       ...snapshot,
       meta: {
         ...snapshot.meta,
         predictionId,
         learningPromptText,
-        historySaveError: predictionId
-          ? null
-          : "Kunde inte spara i historik (kontrollera Supabase-nycklar i produktion).",
+        historySaveError,
       },
     };
   });

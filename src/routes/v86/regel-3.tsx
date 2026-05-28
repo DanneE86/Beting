@@ -11,11 +11,10 @@ function Regel3Page() {
     <Card className="border-[#1e3d2a] bg-[#111c16] p-4 shadow-none">
       <h2 className="text-lg font-semibold text-[#d4f5e2]">Regel 3 är inaktiverad</h2>
       <p className="mt-2 text-sm text-[#b8f0d0]">
-        Den här profilen är bortplockad eftersom den presterat sämre. Använd Regel 1 eller Regel 2.
+        Den här profilen är bortplockad eftersom den presterat sämre. Använd Regel 6.
       </p>
       <div className="mt-3 flex gap-3 text-sm">
-        <Link to="/v86" className="text-[#5ec98a] hover:underline">Gå till Regel 1</Link>
-        <Link to="/v86/regel-2" className="text-[#5ec98a] hover:underline">Gå till Regel 2</Link>
+        <Link to="/v86" className="text-[#5ec98a] hover:underline">Gå till Regel 6</Link>
       </div>
     </Card>
   );
