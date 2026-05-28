@@ -305,12 +305,18 @@ export async function buildSnapshotFromGame(
   const gameType = game.type as PoolGameType;
   const ruleId = normalizeTravRuleId(input.ruleId);
   const rule = TRAV_RULES[ruleId];
+  const isRule6 = ruleId === "rule6";
 
   const autoBudget = input.autoBudget === true;
-  const floorMinPayoutKr =
-    gameType === "dd"
-      ? input.targetMinPayoutKr ?? defaultMinPayoutKr(gameType)
-      : Math.max(30_000, input.targetMinPayoutKr ?? defaultMinPayoutKr(gameType));
+  const floorMinPayoutKr = (() => {
+    if (gameType === "dd") {
+      const ddFloor = isRule6 ? 2_500 : defaultMinPayoutKr(gameType);
+      return Math.max(1_000, input.targetMinPayoutKr ?? ddFloor);
+    }
+    const mainFloor = isRule6 ? 60_000 : 30_000;
+    const mainDefault = isRule6 ? 90_000 : defaultMinPayoutKr(gameType);
+    return Math.max(mainFloor, input.targetMinPayoutKr ?? mainDefault);
+  })();
 
   let travsportCount = 0;
   let travsportIndex;

@@ -84,7 +84,11 @@ export const hybridTravsportCache: NonNullable<FetchGameTravsportOptions["dbCach
         // skriv ändå lokalt
       }
     }
-    await fileCacheBackend.set(profile);
+    try {
+      await fileCacheBackend.set(profile);
+    } catch {
+      // Cloudflare Workers har read-only filsystem — minnescache räcker.
+    }
   },
 };
 

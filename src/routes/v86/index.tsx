@@ -345,8 +345,12 @@ export function TravRuleDashboardPage({
         },
       }),
     onError: (e: Error) => toast.error(e.message),
-    onSuccess: () => {
-      toast.success("Analys klar och sparad i historiken");
+    onSuccess: (snapshot) => {
+      if (snapshot.meta?.historySaveError) {
+        toast.warning(`Analys klar, men historiken sparades inte. ${snapshot.meta.historySaveError}`);
+      } else {
+        toast.success("Analys klar och sparad i historiken");
+      }
       queryClient.invalidateQueries({ queryKey: ["trav-history", historyFilterType, ruleId] });
     },
   });
@@ -408,7 +412,7 @@ export function TravRuleDashboardPage({
     () => (snapshot ? formatMarks(snapshot) : ""),
     [snapshot],
   );
-  const showMarketView = ruleId === "rule2" || ruleId === "rule5";
+  const showMarketView = ruleId === "rule2" || ruleId === "rule5" || ruleId === "rule6";
   const dataModelRows = [
     {
       label: "Form och nivå",
@@ -1340,7 +1344,11 @@ export function TravRuleDashboardPage({
                             legs={storedLegs}
                             compact
                             showBetColumn
-                            showEdgeColumn={row.meta?.rule?.id === "rule2"}
+                            showEdgeColumn={
+                              row.meta?.rule?.id === "rule2" ||
+                              row.meta?.rule?.id === "rule5" ||
+                              row.meta?.rule?.id === "rule6"
+                            }
                           />
                         </div>
                       )}

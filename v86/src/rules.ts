@@ -36,10 +36,17 @@ export const TRAV_RULES: Record<
     version: "rule5-v1",
     usesMarketData: true,
   },
+  rule6: {
+    id: "rule6",
+    label: "Regel 6: förbättrad plusstrategi",
+    shortLabel: "Förbättrad plus",
+    version: "rule6-v1",
+    usesMarketData: true,
+  },
 };
 
 export function normalizeTravRuleId(ruleId?: string | null): TravRuleId {
-  if (ruleId === "rule2" || ruleId === "rule5") return ruleId;
+  if (ruleId === "rule2" || ruleId === "rule5" || ruleId === "rule6") return ruleId;
   return DEFAULT_TRAV_RULE_ID;
 }
 
@@ -137,6 +144,41 @@ export function defaultRuleCoverage(ruleId: TravRuleId): TravRuleCoverageGroup[]
         label: "Loppscenario",
         status: "available",
         detail: "Tempo/trip-proxy, spår och kusk/häst-kemi används för att minska onödig risk.",
+      },
+    ];
+  }
+
+  if (ruleId === "rule6") {
+    return [
+      {
+        id: "horseCore",
+        label: "Hästprofil",
+        status: "available",
+        detail: "Samma datakärna som Regel 5: form, kapacitet, klass, bana och Travsport-historik.",
+      },
+      {
+        id: "technicalCore",
+        label: "Systemoptimering+",
+        status: "available",
+        detail: "Regel 6 optimerar budget/utdelningsmål mot jämnare månadsplus utan att tappa storvinstpotential.",
+      },
+      {
+        id: "expertConsensus",
+        label: "Marknadssignal",
+        status: "partial",
+        detail: "Marknadsdata används men inga externa slutna expertkällor krävs.",
+      },
+      {
+        id: "ratings",
+        label: "Risk/Reward+",
+        status: "available",
+        detail: "Högre vikt på balans mellan stabil träffprofil och chans på >100k/miljonutfall.",
+      },
+      {
+        id: "paceProfile",
+        label: "Loppscenario",
+        status: "available",
+        detail: "Tempo/trip-proxy, spår och kusk/häst-kemi används för riskkontroll i spikval.",
       },
     ];
   }

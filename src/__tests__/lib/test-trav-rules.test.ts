@@ -31,7 +31,9 @@ describe("trav rules", () => {
   it("normaliserar okända regel-id till Regel 1", () => {
     expect(normalizeTravRuleId()).toBe("rule1");
     expect(normalizeTravRuleId("rule2")).toBe("rule2");
-    expect(normalizeTravRuleId("rule4")).toBe("rule4");
+    expect(normalizeTravRuleId("rule5")).toBe("rule5");
+    expect(normalizeTravRuleId("rule6")).toBe("rule6");
+    expect(normalizeTravRuleId("rule4")).toBe("rule1");
     expect(normalizeTravRuleId("något-annat")).toBe("rule1");
   });
 

@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as V86RouteRouteImport } from './routes/v86/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as V86IndexRouteImport } from './routes/v86/index'
+import { Route as V86Regel6RouteImport } from './routes/v86/regel-6'
 import { Route as V86Regel5RouteImport } from './routes/v86/regel-5'
 import { Route as V86Regel4RouteImport } from './routes/v86/regel-4'
 import { Route as V86Regel3RouteImport } from './routes/v86/regel-3'
@@ -32,6 +33,11 @@ const IndexRoute = IndexRouteImport.update({
 const V86IndexRoute = V86IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => V86RouteRoute,
+} as any)
+const V86Regel6Route = V86Regel6RouteImport.update({
+  id: '/regel-6',
+  path: '/regel-6',
   getParentRoute: () => V86RouteRoute,
 } as any)
 const V86Regel5Route = V86Regel5RouteImport.update({
@@ -74,6 +80,7 @@ export interface FileRoutesByFullPath {
   '/v86/regel-3': typeof V86Regel3Route
   '/v86/regel-4': typeof V86Regel4Route
   '/v86/regel-5': typeof V86Regel5Route
+  '/v86/regel-6': typeof V86Regel6Route
   '/v86/': typeof V86IndexRoute
 }
 export interface FileRoutesByTo {
@@ -84,6 +91,7 @@ export interface FileRoutesByTo {
   '/v86/regel-3': typeof V86Regel3Route
   '/v86/regel-4': typeof V86Regel4Route
   '/v86/regel-5': typeof V86Regel5Route
+  '/v86/regel-6': typeof V86Regel6Route
   '/v86': typeof V86IndexRoute
 }
 export interface FileRoutesById {
@@ -96,6 +104,7 @@ export interface FileRoutesById {
   '/v86/regel-3': typeof V86Regel3Route
   '/v86/regel-4': typeof V86Regel4Route
   '/v86/regel-5': typeof V86Regel5Route
+  '/v86/regel-6': typeof V86Regel6Route
   '/v86/': typeof V86IndexRoute
 }
 export interface FileRouteTypes {
@@ -109,6 +118,7 @@ export interface FileRouteTypes {
     | '/v86/regel-3'
     | '/v86/regel-4'
     | '/v86/regel-5'
+    | '/v86/regel-6'
     | '/v86/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -119,6 +129,7 @@ export interface FileRouteTypes {
     | '/v86/regel-3'
     | '/v86/regel-4'
     | '/v86/regel-5'
+    | '/v86/regel-6'
     | '/v86'
   id:
     | '__root__'
@@ -130,6 +141,7 @@ export interface FileRouteTypes {
     | '/v86/regel-3'
     | '/v86/regel-4'
     | '/v86/regel-5'
+    | '/v86/regel-6'
     | '/v86/'
   fileRoutesById: FileRoutesById
 }
@@ -160,6 +172,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/v86/'
       preLoaderRoute: typeof V86IndexRouteImport
+      parentRoute: typeof V86RouteRoute
+    }
+    '/v86/regel-6': {
+      id: '/v86/regel-6'
+      path: '/regel-6'
+      fullPath: '/v86/regel-6'
+      preLoaderRoute: typeof V86Regel6RouteImport
       parentRoute: typeof V86RouteRoute
     }
     '/v86/regel-5': {
@@ -213,6 +232,7 @@ interface V86RouteRouteChildren {
   V86Regel3Route: typeof V86Regel3Route
   V86Regel4Route: typeof V86Regel4Route
   V86Regel5Route: typeof V86Regel5Route
+  V86Regel6Route: typeof V86Regel6Route
   V86IndexRoute: typeof V86IndexRoute
 }
 
@@ -222,6 +242,7 @@ const V86RouteRouteChildren: V86RouteRouteChildren = {
   V86Regel3Route: V86Regel3Route,
   V86Regel4Route: V86Regel4Route,
   V86Regel5Route: V86Regel5Route,
+  V86Regel6Route: V86Regel6Route,
   V86IndexRoute: V86IndexRoute,
 }
 

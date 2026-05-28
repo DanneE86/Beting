@@ -24,7 +24,7 @@ export type { FetchSnapshot, GameOption };
 export { pickDefaultPoolGame };
 export { pickDefaultV85Game, pickDefaultV85Game as pickDefaultV86Game };
 
-export const TRAV_RULE_IDS = ["rule1", "rule2", "rule3", "rule4", "rule5"] as const;
+export const TRAV_RULE_IDS = ["rule1", "rule2", "rule3", "rule4", "rule5", "rule6"] as const;
 export const TRAV_RULE_IDS_WITH_ALL = [...TRAV_RULE_IDS, "all"] as const;
 
 export const v86ListGames = createServerFn({ method: "GET" })
@@ -73,7 +73,10 @@ export const v86Analyze = createServerFn({ method: "POST" })
     });
     const ruleId = snapshot.meta?.rule?.id ?? normalizeTravRuleId(data.ruleId);
     const [predictionId, learningPromptText] = await Promise.all([
-      saveTravPrediction(snapshot),
+      saveTravPrediction(snapshot).catch((error) => {
+        console.warn("saveTravPrediction failed:", (error as Error).message);
+        return null;
+      }),
       getTravLearningPrompt(snapshot.game.type, ruleId).catch(() => null),
     ]);
     return {
@@ -82,6 +85,9 @@ export const v86Analyze = createServerFn({ method: "POST" })
         ...snapshot.meta,
         predictionId,
         learningPromptText,
+        historySaveError: predictionId
+          ? null
+          : "Kunde inte spara i historik (kontrollera Supabase-nycklar i produktion).",
       },
     };
   });

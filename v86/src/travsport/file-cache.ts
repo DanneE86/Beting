@@ -7,35 +7,53 @@ const CACHE_DIR = resolve("v86", "output", "travsport-cache");
 const INDEX_FILE = resolve(CACHE_DIR, "index.json");
 const MAX_AGE_MS = 6 * 60 * 60 * 1000;
 let memoryIndex: TravsportIndex | null = null;
+let fsWritable: boolean | null = null;
 
-function ensureDir() {
-  if (!existsSync(CACHE_DIR)) mkdirSync(CACHE_DIR, { recursive: true });
+function canUseFilesystem(): boolean {
+  if (fsWritable != null) return fsWritable;
+  try {
+    if (!existsSync(CACHE_DIR)) mkdirSync(CACHE_DIR, { recursive: true });
+    const probe = resolve(CACHE_DIR, ".write-probe");
+    writeFileSync(probe, "1", "utf-8");
+    fsWritable = true;
+  } catch {
+    fsWritable = false;
+  }
+  return fsWritable;
 }
 
-export function loadTravsportIndex(): TravsportIndex {
-  ensureDir();
-  if (memoryIndex) return memoryIndex;
-  if (!existsSync(INDEX_FILE)) return {};
+function loadFromDisk(): TravsportIndex {
+  if (!canUseFilesystem() || !existsSync(INDEX_FILE)) return {};
   try {
-    memoryIndex = JSON.parse(readFileSync(INDEX_FILE, "utf-8")) as TravsportIndex;
-    return memoryIndex;
+    return JSON.parse(readFileSync(INDEX_FILE, "utf-8")) as TravsportIndex;
   } catch {
-    memoryIndex = {};
     return {};
   }
 }
 
+export function loadTravsportIndex(): TravsportIndex {
+  if (memoryIndex) return memoryIndex;
+  memoryIndex = loadFromDisk();
+  return memoryIndex;
+}
+
 export function saveHorseProfile(profile: TravsportHorseProfile) {
-  ensureDir();
   const index = loadTravsportIndex();
-  writeFileSync(
-    resolve(CACHE_DIR, `${profile.horseId}.json`),
-    JSON.stringify(profile, null, 2),
-    "utf-8",
-  );
   index[profile.horseId] = profile;
   memoryIndex = index;
-  writeFileSync(INDEX_FILE, JSON.stringify(index, null, 2), "utf-8");
+
+  if (!canUseFilesystem()) return;
+
+  try {
+    writeFileSync(
+      resolve(CACHE_DIR, `${profile.horseId}.json`),
+      JSON.stringify(profile, null, 2),
+      "utf-8",
+    );
+    writeFileSync(INDEX_FILE, JSON.stringify(index, null, 2), "utf-8");
+  } catch {
+    fsWritable = false;
+  }
 }
 
 function isFresh(profile: { fetchedAt: string }) {
@@ -72,5 +90,7 @@ export const fileCacheBackend = {
     getCachedProfile(horseId, options),
   getMany: async (horseIds: number[], options?: TravsportCacheReadOptions) =>
     getManyCachedProfiles(horseIds, options),
-  set: async (profile: TravsportHorseProfile) => saveHorseProfile(profile),
+  set: async (profile: TravsportHorseProfile) => {
+    saveHorseProfile(profile);
+  },
 };
