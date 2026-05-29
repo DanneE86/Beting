@@ -989,10 +989,11 @@ export function TravRuleDashboardPage({
                                 ) : null}
                               </span>
                               <span className="tabular-nums text-[#7fa892]">
-                                {h.winOdds != null && (
-                                  <span className="mr-1 text-[#d4f5e2]">odds {h.winOdds.toFixed(2)} ·</span>
-                                )}
-                                {betText ? `${betText} · ${winText}` : winText}
+                                {[
+                                  h.winOdds != null ? `odds ${h.winOdds.toFixed(2)}` : null,
+                                  betText,
+                                  winText,
+                                ].filter(Boolean).join(" · ")}
                               </span>
                             </button>
                           </li>
