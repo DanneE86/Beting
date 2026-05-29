@@ -31,6 +31,7 @@ import {
 import { toast } from "sonner";
 import { rowPriceKr } from "../../../v86/src/game-types";
 import { LegScratchedHorses } from "@/components/LegScratchedHorses";
+import { SystemLegPicksWithOdds } from "@/components/SystemLegPicks";
 import {
   BiggestRiskNote,
   LegHitPctBadge,
@@ -706,6 +707,7 @@ export function TravRuleDashboardPage({
             <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {snapshot.system.selections.map((s) => {
                 const raceForLeg = snapshot.raceData?.find((race) => race.leg === s.leg);
+                const legAnalysis = snapshot.legs.find((leg) => leg.leg === s.leg);
                 return (
                 <div
                   key={s.leg}
@@ -725,9 +727,7 @@ export function TravRuleDashboardPage({
                       </Badge>
                     </div>
                   </div>
-                  <p className="mt-1 font-mono text-lg text-[#d4f5e2]">
-                    {s.picks.join(", ")}
-                  </p>
+                  <SystemLegPicksWithOdds leg={legAnalysis} picks={s.picks} />
                   <LegScratchedHorses
                     variant="compact"
                     starts={raceForLeg?.starts}
@@ -743,6 +743,61 @@ export function TravRuleDashboardPage({
               })}
             </div>
           </Card>
+
+          {snapshot.systemAlt && snapshot.game.type === "dd" && (
+            <Card className="border-[#3d5a48] bg-[#152a20] p-4 shadow-none">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-lg font-semibold text-[#d4f5e2]">
+                    DD-RAD 2 · {snapshot.systemAlt.costKr.toFixed(0)} kr
+                  </h2>
+                  <p className="text-sm text-[#7fa892]">
+                    {snapshot.systemAlt.rows.toLocaleString("sv-SE")} rader ×{" "}
+                    {formatRowPrice(snapshot.game.type)} kr
+                  </p>
+                  <p className="mt-2 max-w-2xl text-xs text-[#7fa892]">
+                    {snapshot.systemAlt.estimatedPayoutNote}
+                  </p>
+                  <p className="mt-1 text-xs text-[#b8f0d0]">
+                    Exakt 1 gemensam häst per lopp jämfört med DD-RAD 1.
+                  </p>
+                  <BiggestRiskNote outlook={snapshot.systemAlt.hitOutlook} />
+                </div>
+                <SystemHitOutlookSummary
+                  outlook={snapshot.systemAlt.hitOutlook}
+                  gameType={snapshot.game.type}
+                />
+              </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {snapshot.systemAlt.selections.map((s) => {
+                  const raceForLeg = snapshot.raceData?.find((race) => race.leg === s.leg);
+                  const legAnalysis = snapshot.legs.find((leg) => leg.leg === s.leg);
+                  return (
+                    <div
+                      key={`alt-${s.leg}`}
+                      className="rounded-lg border border-[#1e3d2a] bg-[#0c1410] px-3 py-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-[#7fa892]">Avd {s.leg}</span>
+                        <Badge variant="outline" className="border-[#2d6b45] text-[10px] text-[#5ec98a]">
+                          {s.type}
+                        </Badge>
+                      </div>
+                      <SystemLegPicksWithOdds leg={legAnalysis} picks={s.picks} />
+                      <LegScratchedHorses
+                        variant="compact"
+                        starts={raceForLeg?.starts}
+                        scratchingNumbers={raceForLeg?.scratchings}
+                      />
+                      {s.note && (
+                        <p className="mt-1 text-[11px] leading-snug text-[#7fa892]">{s.note}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
 
           {activePrompt && (
             <Card className="border-[#2d6b45] bg-[#13261c] p-4 shadow-none">

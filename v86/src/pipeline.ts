@@ -12,6 +12,7 @@ import { analyzeGame } from "./analyze";
 import { DEFAULT_TRAV_RULE_ID, TRAV_RULES, defaultRuleCoverage, normalizeTravRuleId } from "./rules";
 import {
   AUTO_MAIN_POOL_BUDGETS_KR,
+  buildDdSystemPair,
   buildSystem,
   recommendDdPlay,
   recommendMainPoolPlay,
@@ -389,6 +390,14 @@ export async function buildSnapshotFromGame(
     hitOutlook: computeSystemHitOutlook(legs, builtSystem),
   };
 
+  // DD-RAD 2: alternativt system med exakt 1 gemensam häst per lopp
+  const builtSystemAlt = gameType === "dd"
+    ? recommendedPlay?.systemAlt ?? buildDdSystemPair(game.id, gameType, legs, { budgetKr, targetMinPayoutKr }).alternative
+    : undefined;
+  const systemAlt = builtSystemAlt
+    ? { ...builtSystemAlt, hitOutlook: computeSystemHitOutlook(legs, builtSystemAlt) }
+    : undefined;
+
   const firstRaceStart = game.races[0]?.startTime ?? game.races[0]?.scheduledStartTime;
 
   return {
@@ -397,6 +406,7 @@ export async function buildSnapshotFromGame(
     legs,
     raceData,
     system,
+    systemAlt,
     andelsspel,
     expertSignals,
     expertConsensus,

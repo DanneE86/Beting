@@ -51,6 +51,46 @@ export interface RecommendedMainPoolPlay {
   opennessScore: number;
   reason: string;
   system: BuiltSystem;
+  systemAlt?: BuiltSystem;
+}
+
+export function ddSystemSignature(system: BuiltSystem): string {
+  return [...system.selections]
+    .sort((a, b) => a.leg - b.leg)
+    .map((s) => [...s.picks].sort((a, b) => a - b).join(","))
+    .join("|");
+}
+
+export function isDistinctDdSystem(a: BuiltSystem, b: BuiltSystem): boolean {
+  return ddSystemSignature(a) !== ddSystemSignature(b);
+}
+
+export const DD_SHARED_HORSES_PER_LEG = 1;
+
+export function legPickOverlap(a: number[], b: number[]): number {
+  const setB = new Set(b);
+  return a.filter((n) => setB.has(n)).length;
+}
+
+export function ddSystemsMeetSharedHorseRule(
+  primary: BuiltSystem,
+  alternative: BuiltSystem,
+  sharedPerLeg = DD_SHARED_HORSES_PER_LEG,
+): boolean {
+  if (!isDistinctDdSystem(primary, alternative)) return false;
+  for (const selection of primary.selections) {
+    const alt = alternative.selections.find((s) => s.leg === selection.leg);
+    if (!alt) return false;
+    if (legPickOverlap(selection.picks, alt.picks) !== sharedPerLeg) return false;
+  }
+  return true;
+}
+
+export function formatDdSystemLine(system: BuiltSystem): string {
+  return [...system.selections]
+    .sort((a, b) => a.leg - b.leg)
+    .map((s) => s.picks.join("-"))
+    .join(" / ");
 }
 
 function rankedHorses(leg: LegAnalysis) {
@@ -1043,6 +1083,115 @@ function buildDdRecommendationReason(
   return `${budgetKr} kr gav bäst balans mellan ${structureText}, ${hitRateText} och en rimlig chans att nå minst ${targetMinPayoutKr.toLocaleString("sv-SE")} kr vid träff.`;
 }
 
+type DdSystemCandidate = { system: BuiltSystem; score: number };
+
+function pickDdLegWithExactShared(
+  leg: LegAnalysis,
+  primaryPicks: number[],
+  count: number,
+  exactShared = DD_SHARED_HORSES_PER_LEG,
+  preferredShared?: number,
+): number[] | null {
+  if (count < 1 || exactShared < 0 || exactShared > count) return null;
+  const order = ddCoverageOrder(leg);
+  const primarySet = new Set(primaryPicks);
+  const sharedOrder =
+    preferredShared != null && primarySet.has(preferredShared)
+      ? [preferredShared, ...order.filter((n) => primarySet.has(n) && n !== preferredShared)]
+      : order.filter((n) => primarySet.has(n));
+  if (sharedOrder.length < exactShared) return null;
+  const anchor = sharedOrder[0];
+  if (anchor == null) return null;
+  if (count === 1) return exactShared === 1 ? [anchor] : null;
+  const picks: number[] = [anchor];
+  for (const n of sharedOrder.slice(1)) {
+    if (picks.length >= exactShared) break;
+    picks.push(n);
+  }
+  for (const n of order) {
+    if (picks.length >= count) break;
+    if (!primarySet.has(n) && !picks.includes(n)) picks.push(n);
+  }
+  return picks.length === count && legPickOverlap(picks, primaryPicks) === exactShared ? picks : null;
+}
+
+function ddAlternativeMeetsBudgetRule(alt: BuiltSystem, options: BuildOptions, gameType: PoolGameType): boolean {
+  const maxRows = Math.max(1, Math.floor(options.budgetKr / rowPriceKr(gameType)));
+  return alt.rows >= Math.max(2, Math.floor(maxRows * 0.5));
+}
+
+function isValidDdAlternative(primary: BuiltSystem, alt: BuiltSystem, options: BuildOptions, gameType: PoolGameType): boolean {
+  return ddSystemsMeetSharedHorseRule(primary, alt) && ddAlternativeMeetsBudgetRule(alt, options, gameType);
+}
+
+function collectDdSystemCandidates(gameId: string, gameType: PoolGameType, legs: LegAnalysis[], options: BuildOptions): DdSystemCandidate[] {
+  const unitKr = rowPriceKr(gameType);
+  const maxRows = Math.max(1, Math.floor(options.budgetKr / unitKr));
+  const ddLegs = legs.slice(0, 2);
+  if (ddLegs.length < 2) return [];
+  const coverageOrders = ddLegs.map((leg) => ddCoverageOrder(leg, options.forceSkrellLeg != null && options.forceSkrellLeg === leg.leg));
+  const candidates: DdSystemCandidate[] = [];
+  for (let firstCount = 1; firstCount <= Math.min(maxRows, coverageOrders[0].length); firstCount++) {
+    for (let secondCount = 1; secondCount <= Math.min(Math.max(1, Math.floor(maxRows / firstCount)), coverageOrders[1].length); secondCount++) {
+      const rows = firstCount * secondCount;
+      if (rows > maxRows) continue;
+      const selections = [buildDdSelection(ddLegs[0], coverageOrders[0].slice(0, firstCount)), buildDdSelection(ddLegs[1], coverageOrders[1].slice(0, secondCount))];
+      const costKr = rows * unitKr;
+      const system: BuiltSystem = { gameId, gameType, budgetKr: options.budgetKr, rows, costKr, targetMinPayoutKr: options.targetMinPayoutKr, estimatedPayoutNote: `Mål: utdelning ≥ ${options.targetMinPayoutKr.toLocaleString("sv-SE")} kr vid DD-träff. System: ${rows} rader × ${unitKr} kr = ${costKr.toFixed(2)} kr.`, selections, skrellSpikeLeg: selections.find((s) => s.type === "skrell-spik")?.leg ?? null };
+      const metrics = evaluateDdSystem(ddLegs, system, options);
+      const rowsPenalty = rows < Math.max(1, maxRows - 1) ? (Math.max(1, maxRows - 1) - rows) * 18 : 0;
+      candidates.push({ system, score: scoreDdSystem(metrics) - rowsPenalty });
+    }
+  }
+  return candidates;
+}
+
+function buildDdSharedHorseAlternative(gameId: string, gameType: PoolGameType, legs: LegAnalysis[], options: BuildOptions, primary: BuiltSystem): BuiltSystem | null {
+  const unitKr = rowPriceKr(gameType);
+  const maxRows = Math.max(1, Math.floor(options.budgetKr / unitKr));
+  const ddLegs = legs.slice(0, 2);
+  if (ddLegs.length < 2) return null;
+  const primaryByLeg = new Map(primary.selections.map((s) => [s.leg, s.picks]));
+  const coverageLengths = ddLegs.map((leg) => ddCoverageOrder(leg).length);
+  let best: DdSystemCandidate | null = null;
+  for (let firstCount = 1; firstCount <= Math.min(maxRows, coverageLengths[0]); firstCount++) {
+    for (let secondCount = 1; secondCount <= Math.min(Math.max(1, Math.floor(maxRows / firstCount)), coverageLengths[1]); secondCount++) {
+      const rows = firstCount * secondCount;
+      if (rows > maxRows) continue;
+      const shared0Options = (primaryByLeg.get(ddLegs[0].leg) ?? []).length > 0 ? (primaryByLeg.get(ddLegs[0].leg) ?? []) : [undefined as unknown as number];
+      const shared1Options = (primaryByLeg.get(ddLegs[1].leg) ?? []).length > 0 ? (primaryByLeg.get(ddLegs[1].leg) ?? []) : [undefined as unknown as number];
+      for (const s0 of shared0Options) {
+        for (const s1 of shared1Options) {
+          const picks1 = pickDdLegWithExactShared(ddLegs[0], primaryByLeg.get(ddLegs[0].leg) ?? [], firstCount, DD_SHARED_HORSES_PER_LEG, s0);
+          const picks2 = pickDdLegWithExactShared(ddLegs[1], primaryByLeg.get(ddLegs[1].leg) ?? [], secondCount, DD_SHARED_HORSES_PER_LEG, s1);
+          if (!picks1 || !picks2) continue;
+          const selections = [buildDdSelection(ddLegs[0], picks1), buildDdSelection(ddLegs[1], picks2)];
+          const system: BuiltSystem = { gameId, gameType, budgetKr: options.budgetKr, rows, costKr: rows * unitKr, targetMinPayoutKr: options.targetMinPayoutKr, estimatedPayoutNote: `Alternativ DD-profil (${firstCount}×${secondCount}) med exakt ${DD_SHARED_HORSES_PER_LEG} gemensam häst per lopp mot system 1.`, selections, skrellSpikeLeg: selections.find((s) => s.type === "skrell-spik")?.leg ?? null };
+          if (!isValidDdAlternative(primary, system, options, gameType)) continue;
+          const metrics = evaluateDdSystem(ddLegs, system, options);
+          const rowsPenalty = rows < Math.max(1, maxRows - 1) ? (Math.max(1, maxRows - 1) - rows) * 18 : 0;
+          const score = scoreDdSystem(metrics) - rowsPenalty;
+          if (!best || score > best.score) best = { system, score };
+        }
+      }
+    }
+  }
+  return best?.system ?? null;
+}
+
+export function buildDdSystemPair(gameId: string, gameType: PoolGameType, legs: LegAnalysis[], options: BuildOptions): { primary: BuiltSystem; alternative: BuiltSystem } {
+  const candidates = collectDdSystemCandidates(gameId, gameType, legs, options).sort((a, b) => b.score - a.score);
+  const fallback = buildCandidateSystem(gameId, gameType, legs, options);
+  const primary = candidates[0]?.system ?? fallback;
+  const validAlts = candidates.filter((c) => isValidDdAlternative(primary, c.system, options, gameType)).sort((a, b) => b.system.rows - a.system.rows || b.score - a.score);
+  let alternative = buildDdSharedHorseAlternative(gameId, gameType, legs, options, primary) ?? validAlts[0]?.system ?? fallback;
+  if (!isDistinctDdSystem(primary, alternative) || !ddSystemsMeetSharedHorseRule(primary, alternative)) {
+    const repaired = buildDdSharedHorseAlternative(gameId, gameType, legs, options, primary);
+    if (repaired && isDistinctDdSystem(primary, repaired) && ddSystemsMeetSharedHorseRule(primary, repaired)) alternative = repaired;
+  }
+  return { primary, alternative };
+}
+
 export function recommendDdPlay(
   gameId: string,
   gameType: PoolGameType,
@@ -1053,27 +1202,14 @@ export function recommendDdPlay(
 
   const targetMinPayoutKr = Math.max(1_000, minTargetMinPayoutKr);
   let best:
-    | {
-        budgetKr: (typeof AUTO_DD_BUDGETS_KR)[number];
-        system: BuiltSystem;
-        metrics: DdCandidateMetrics;
-        score: number;
-      }
+    | { budgetKr: (typeof AUTO_DD_BUDGETS_KR)[number]; system: BuiltSystem; systemAlt: BuiltSystem; metrics: DdCandidateMetrics; score: number }
     | null = null;
 
   for (const budgetKr of AUTO_DD_BUDGETS_KR) {
-    const system = buildDdSystem(gameId, gameType, legs, {
-      budgetKr,
-      targetMinPayoutKr,
-    });
-    const metrics = evaluateDdSystem(legs, system, {
-      budgetKr,
-      targetMinPayoutKr,
-    });
+    const pair = buildDdSystemPair(gameId, gameType, legs, { budgetKr, targetMinPayoutKr });
+    const metrics = evaluateDdSystem(legs, pair.primary, { budgetKr, targetMinPayoutKr });
     const score = scoreDdSystem(metrics) - (budgetKr === 60 ? 4 : 0);
-    if (!best || score > best.score) {
-      best = { budgetKr, system, metrics, score };
-    }
+    if (!best || score > best.score) best = { budgetKr, system: pair.primary, systemAlt: pair.alternative, metrics, score };
   }
 
   if (!best) return null;
@@ -1082,13 +1218,9 @@ export function recommendDdPlay(
     budgetKr: best.budgetKr,
     targetMinPayoutKr,
     opennessScore: Math.round(best.metrics.hitProbability * 100) / 100,
-    reason: buildDdRecommendationReason(
-      best.budgetKr,
-      targetMinPayoutKr,
-      best.system,
-      best.metrics,
-    ),
+    reason: buildDdRecommendationReason(best.budgetKr, targetMinPayoutKr, best.system, best.metrics),
     system: best.system,
+    systemAlt: best.systemAlt,
   };
 }
 
