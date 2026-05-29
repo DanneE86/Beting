@@ -969,32 +969,35 @@ export function TravRuleDashboardPage({
                             <button
                               type="button"
                               onClick={() => setExpandedHorse(open ? null : key)}
-                              className={`flex w-full items-center justify-between rounded px-1 py-1 text-left text-sm hover:bg-[#1a2e22] ${isPicked ? "bg-[#1a2e22]/80 ring-1 ring-[#2d6b45]" : ""}`}
+                              className={`w-full rounded px-1 py-1.5 text-left hover:bg-[#1a2e22] ${isPicked ? "bg-[#1a2e22]/80 ring-1 ring-[#2d6b45]" : ""}`}
                             >
-                              <span className="text-[#e8f0ea]">
-                                <span className="font-mono text-[#5ec98a]">{h.number}.</span>{" "}
-                                {h.name}
-                                {isPicked ? (
-                                  <span className="ml-1 text-[10px] font-medium text-[#b8f0d0]">
-                                    · markering
-                                  </span>
-                                ) : null}
-                                <span className="ml-1 text-[10px] text-[#5ec98a]">
-                                  {(h.combinedScore * 100).toFixed(0)}%
+                              {/* Rad 1: nummer · namn · markering-badge */}
+                              <div className="flex items-baseline justify-between gap-2">
+                                <span className="text-sm text-[#e8f0ea]">
+                                  <span className="font-mono text-[#5ec98a]">{h.number}.</span>{" "}
+                                  {h.name}
+                                  {isPicked && (
+                                    <span className="ml-1.5 rounded bg-[#2d6b45]/40 px-1 py-0.5 text-[10px] font-medium text-[#b8f0d0]">
+                                      markering
+                                    </span>
+                                  )}
                                 </span>
-                                {h.estimatedWinPct != null ? (
-                                  <span className="ml-1 text-[10px] text-[#7fa892]">
-                                    · modell {h.estimatedWinPct.toFixed(0)}%
+                                {h.winOdds != null && (
+                                  <span className="shrink-0 font-mono text-sm text-[#d4f5e2]">
+                                    {h.winOdds.toFixed(2)}
                                   </span>
-                                ) : null}
-                              </span>
-                              <span className="tabular-nums text-[#7fa892]">
-                                {[
-                                  h.winOdds != null ? `odds ${h.winOdds.toFixed(2)}` : null,
-                                  betText,
-                                  winText,
-                                ].filter(Boolean).join(" · ")}
-                              </span>
+                                )}
+                              </div>
+                              {/* Rad 2: modell-score · spel% · vinst% */}
+                              <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-[#7fa892]">
+                                <span>
+                                  {(h.combinedScore * 100).toFixed(0)}%
+                                  {h.estimatedWinPct != null && ` · modell ${h.estimatedWinPct.toFixed(0)}%`}
+                                </span>
+                                <span className="shrink-0 tabular-nums">
+                                  {[betText, winText].filter(Boolean).join(" · ")}
+                                </span>
+                              </div>
                             </button>
                           </li>
                           {open && (
