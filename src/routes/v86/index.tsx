@@ -971,7 +971,7 @@ export function TravRuleDashboardPage({
                               onClick={() => setExpandedHorse(open ? null : key)}
                               className={`w-full rounded px-1 py-1.5 text-left hover:bg-[#1a2e22] ${isPicked ? "bg-[#1a2e22]/80 ring-1 ring-[#2d6b45]" : ""}`}
                             >
-                              {/* Rad 1: nummer · namn · markering-badge */}
+                              {/* Rad 1: nummer · namn · markering | odds */}
                               <div className="flex items-baseline justify-between gap-2">
                                 <span className="text-sm text-[#e8f0ea]">
                                   <span className="font-mono text-[#5ec98a]">{h.number}.</span>{" "}
@@ -984,18 +984,28 @@ export function TravRuleDashboardPage({
                                 </span>
                                 {h.winOdds != null && (
                                   <span className="shrink-0 font-mono text-sm text-[#d4f5e2]">
-                                    {h.winOdds.toFixed(2)}
+                                    odds {h.winOdds.toFixed(2)}
                                   </span>
                                 )}
                               </div>
-                              {/* Rad 2: modell-score · spel% · vinst% */}
-                              <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-[#7fa892]">
-                                <span>
+                              {/* Rad 2: modell% | folkspel% · vinst% */}
+                              <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px]">
+                                <span className="text-[#7fa892]">
                                   {(h.combinedScore * 100).toFixed(0)}%
                                   {h.estimatedWinPct != null && ` · modell ${h.estimatedWinPct.toFixed(0)}%`}
                                 </span>
                                 <span className="shrink-0 tabular-nums">
-                                  {[betText, winText].filter(Boolean).join(" · ")}
+                                  {h.betDistribution != null && h.betDistribution > 0 && (
+                                    <span className="font-medium text-[#b8f0d0]">
+                                      {h.betDistribution.toFixed(1)}% spel
+                                    </span>
+                                  )}
+                                  {h.betDistribution != null && h.betDistribution > 0 && (
+                                    <span className="text-[#7fa892]"> · {winText}</span>
+                                  )}
+                                  {(h.betDistribution == null || h.betDistribution === 0) && (
+                                    <span className="text-[#7fa892]">{winText}</span>
+                                  )}
                                 </span>
                               </div>
                             </button>
