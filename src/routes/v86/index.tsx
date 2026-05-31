@@ -40,7 +40,7 @@ import {
 } from "@/components/SystemHitOutlook";
 
 export const Route = createFileRoute("/v86/")({
-  component: Regel6DefaultPage,
+  component: RuleSelectablePage,
 });
 
 export type TravRuleDashboardProps = {
@@ -51,20 +51,50 @@ export type TravRuleDashboardProps = {
   extraIntro?: ReactNode;
 };
 
-function Regel6DefaultPage() {
+const SELECTABLE_RULES: { id: TravRuleId; label: string; short: string; description: string }[] = [
+  {
+    id: "rule6",
+    label: "Regel 6",
+    short: "Förbättrad plus",
+    description: "Optimerar budget och utdelningsmål mot jämnare månadsresultat med chans på storvinster.",
+  },
+  {
+    id: "rule7",
+    label: "Regel 7",
+    short: "Stabil månadsregel",
+    description: "Bredare gardering (max 3 hästar/ben) och höjd spik-tröskel — fler 6/8-träffar framför storvinstjakt.",
+  },
+];
+
+function RuleSelectablePage() {
+  const [selectedRule, setSelectedRule] = useState<TravRuleId>("rule6");
+  const rule = SELECTABLE_RULES.find((r) => r.id === selectedRule) ?? SELECTABLE_RULES[0];
+
   return (
     <TravRuleDashboardPage
-      ruleId="rule6"
-      title="Regel 6: förbättrad plusstrategi"
-      description="Regel 6 prioriterar månadsstabil plusprofil med målet minst +10 000 kr per månad, samtidigt som den bibehåller chans på stora utdelningar över 100 000 kr och miljonutfall."
+      ruleId={selectedRule}
+      title={`${rule!.label}: ${rule!.short}`}
+      description={rule!.description}
       badgeText="Aktiv regel"
       extraIntro={
-        <Card className="border-[#1e3d2a] bg-[#111c16] p-4 shadow-none">
-          <p className="text-sm text-[#b8f0d0]">
-            Tidigare regelprofiler (1, 2 och 5) gav samma rank och system som denna regel i praktiken.
-            Endast Regel 6 visas nu — med högre utdelningsmål vid auto-budget.
-          </p>
-        </Card>
+        <div className="flex gap-2">
+          {SELECTABLE_RULES.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => setSelectedRule(r.id)}
+              className={[
+                "flex-1 rounded-lg border px-4 py-2.5 text-left transition-colors",
+                selectedRule === r.id
+                  ? "border-[#4ade80] bg-[#1a3d26] text-[#4ade80]"
+                  : "border-[#1e3d2a] bg-[#111c16] text-[#6b9e7e] hover:border-[#2d5a3a] hover:text-[#9dd4b0]",
+              ].join(" ")}
+            >
+              <div className="text-sm font-semibold">{r.label}</div>
+              <div className="text-xs opacity-75">{r.short}</div>
+            </button>
+          ))}
+        </div>
       }
     />
   );
@@ -79,7 +109,7 @@ function daysAgoIso(days: number) {
 }
 
 const DEFAULT_TRAV_BUDGET_KR = 600;
-const DEFAULT_DD_BUDGET_KR = 60;
+const DEFAULT_DD_BUDGET_KR = 150;
 const DEFAULT_TRAV_MIN_PAYOUT_KR = 30_000;
 const DEFAULT_DD_MIN_PAYOUT_KR = 1_500;
 const DEFAULT_BACKTEST_GAMES = 10;
@@ -530,12 +560,21 @@ export function TravRuleDashboardPage({
                 {visibleGames.length === 0 && (
                   <option value="">Inget V85, V86 eller DD denna dag</option>
                 )}
-                {visibleGames.map((g: GameOption) => (
-                  <option key={g.id} value={g.id}>
-                    {g.typeLabel}
-                    {g.startLabel ? ` · ${g.startLabel}` : ""} — {g.status}
-                  </option>
-                ))}
+                {visibleGames.map((g: GameOption) => {
+                  const ddAvoidTracks = ["Boden", "Romme", "Bergsåker", "Östersund", "Gävle"];
+                  const trackLabel = g.type === "dd" && g.trackNames ? ` · ${g.trackNames}` : "";
+                  const isDdAvoid = g.type === "dd" && ddAvoidTracks.some(t => g.trackNames?.includes(t));
+                  return (
+                    <option key={g.id} value={g.id}>
+                      {isDdAvoid ? "⛔ " : ""}
+                      {g.typeLabel}
+                      {g.startLabel ? ` · ${g.startLabel}` : ""}
+                      {trackLabel}
+                      {isDdAvoid ? " (undvik)" : ""}
+                      {" — "}{g.status}
+                    </option>
+                  );
+                })}
               </select>
             )}
           </div>
@@ -620,6 +659,28 @@ export function TravRuleDashboardPage({
 
       {snapshot && (
         <>
+          {(() => {
+            if (snapshot.game.type !== "dd") return null;
+            const ddTrack = snapshot.game.races?.[0]?.track?.name ?? "";
+            const avoidReasons: Record<string, string> = {
+              Boden: "Alla träffar betalar under insatsen — favoriter vinner alltid och pool betalar för lite. ROI -89%.",
+              Romme: "60% träffprocent men snittutbetalning 156 kr på 150 kr insats. Favoriter dominerar poolen. ROI -38%.",
+              Bergsåker: "Modellen missar leg1-vinnaren i 57% av omgångarna. Oförutsägbara utommarker. ROI -55%.",
+              Östersund: "Extremt låga utbetalningar vid träff (snitt 54 kr). Undvik. ROI -86%.",
+              Gävle: "Leg2-vinnaren utanför vår lista i hälften av omgångarna. Svårpredikterad bana. ROI -33%.",
+            };
+            const reason = avoidReasons[ddTrack];
+            if (!reason) return null;
+            return (
+              <div className="flex items-start gap-3 rounded-md border border-red-700 bg-red-950/60 px-4 py-3 text-red-300">
+                <span className="mt-0.5 text-lg leading-none">⛔</span>
+                <div>
+                  <p className="font-semibold text-red-200">Undvik DD på {ddTrack}</p>
+                  <p className="mt-0.5 text-sm">{reason}</p>
+                </div>
+              </div>
+            );
+          })()}
           <div className="flex flex-wrap items-center gap-3">
             <Badge className="bg-[#1a5c38] text-[#d4f5e2]">{snapshot.game.type}</Badge>
             {snapshot.meta?.poolStartLabel && (
@@ -1047,6 +1108,46 @@ export function TravRuleDashboardPage({
                                   </div>
                                 ))}
                               </div>
+                              {tsProfile?.recentStarts && tsProfile.recentStarts.length > 0 && (
+                                <div>
+                                  <p className="font-medium text-[#5ec98a]">Senaste {Math.min(3, tsProfile.recentStarts.length)} starter</p>
+                                  <div className="mt-1 space-y-1">
+                                    {tsProfile.recentStarts.slice(0, 3).map((s, i) => {
+                                      const resultLabel = s.galloped
+                                        ? "G"
+                                        : s.disqualified
+                                          ? "DQ"
+                                          : s.withdrawn
+                                            ? "–"
+                                            : s.placementDisplay || (s.placement != null ? String(s.placement) : "?");
+                                      const resultColor =
+                                        s.galloped || s.disqualified || s.withdrawn
+                                          ? "text-[#f0a070]"
+                                          : s.placement === 1
+                                            ? "text-[#5ec98a] font-bold"
+                                            : s.placement != null && s.placement <= 3
+                                              ? "text-[#b8f0d0] font-medium"
+                                              : "text-[#c8ddd2]";
+                                      return (
+                                        <div key={i} className="rounded bg-[#0d1f14] px-2 py-1">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="text-[#7fa892]">{s.displayDate || s.date}</span>
+                                            <span className={resultColor}>{resultLabel}</span>
+                                            <span className="font-mono text-[#c8ddd2]">{s.kmTime ?? "—"}</span>
+                                            <span className="text-[#7fa892]">
+                                              {s.distance ? `${s.distance}m` : ""}
+                                              {s.startPosition ? ` · sp${s.startPosition}` : ""}
+                                            </span>
+                                          </div>
+                                          {s.tripComment && (
+                                            <p className="mt-0.5 text-[10px] italic text-[#5a7a68]">{s.tripComment}</p>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
                               <div>
                                 <p className="font-medium text-[#5ec98a]">Relevanta hästfakta</p>
                                 {horseFacts.map((fact) => (
@@ -1475,7 +1576,8 @@ export function TravRuleDashboardPage({
                             showEdgeColumn={
                               row.meta?.rule?.id === "rule2" ||
                               row.meta?.rule?.id === "rule5" ||
-                              row.meta?.rule?.id === "rule6"
+                              row.meta?.rule?.id === "rule6" ||
+                              row.meta?.rule?.id === "rule7"
                             }
                           />
                         </div>

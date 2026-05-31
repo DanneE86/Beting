@@ -10,7 +10,7 @@ import { tipToOutcome, type TipLabel } from "@/lib/match-outcome";
 import { extractBtts } from "@/lib/prediction-meta";
 import { parseBttsReason } from "@/lib/btts-model";
 import { outcomeToTip, isExactScore } from "@/lib/match-outcome";
-import type { BttsCall, PredictionListRow, PostmortemData } from "@/lib/prediction-types";
+import type { PredictionListRow, PostmortemData } from "@/lib/prediction-types";
 
 export type PredictionRow = PredictionListRow;
 
@@ -243,6 +243,9 @@ function SimpleTipRow({
       <td colSpan={colSpan} className="px-3 py-3 sm:px-4">
         <FootballSimpleTip
           tip={tip as TipLabel}
+          homeWinPct={isFinite(h) ? h : null}
+          drawPct={isFinite(d) ? d : null}
+          awayWinPct={isFinite(a) ? a : null}
           tipPct={tipPct}
           bttsCall={bttsCall}
           bttsReason={bttsReason}

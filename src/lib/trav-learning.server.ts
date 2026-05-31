@@ -178,7 +178,7 @@ function extractPayoutSummary(game: AtgGame) {
                     : [],
                   payoutKr:
                     typeof (winner as { odds?: number }).odds === "number"
-                      ? ((winner as { odds?: number }).odds ?? 0) * rowPriceKr(game.type)
+                      ? (((winner as { odds?: number }).odds ?? 0) / 100) * rowPriceKr(game.type)
                       : null,
                 },
               ]
@@ -656,12 +656,46 @@ export async function saveTravPrediction(
     backtestDate: options.backtestDate ?? snapshot.meta?.backtestDate ?? null,
     ...(options.extraMeta ?? {}),
   } as Json;
+  // Strip large fields from snapshot_json to stay under nginx's 1MB body limit.
+  // legs+system are stored in their own columns and restored at resolve time.
+  // raceData is rebuild-able from game.races.
+  // horse/driver/trainer statistics are only needed during analysis.
+  const snapshotForDb = {
+    ...snapshot,
+    legs: undefined,
+    system: undefined,
+    raceData: undefined,
+    game: {
+      ...snapshot.game,
+      races: snapshot.game.races.map((race) => ({
+        ...race,
+        starts: race.starts.map((start) => ({
+          ...start,
+          horse: start.horse
+            ? {
+                ...start.horse,
+                statistics: undefined,
+                trainer: start.horse.trainer
+                  ? { ...start.horse.trainer, statistics: undefined }
+                  : start.horse.trainer,
+              }
+            : start.horse,
+          driver: start.driver
+            ? { ...start.driver, statistics: undefined }
+            : start.driver,
+        })),
+      })),
+    },
+    meta: snapshot.meta
+      ? { ...snapshot.meta, learningPromptText: undefined }
+      : snapshot.meta,
+  };
   const payload: Database["public"]["Tables"]["trav_predictions"]["Insert"] = {
     game_id: snapshot.game.id,
     game_type: snapshot.game.type,
     game_date: gameDateOf(snapshot),
     status: snapshot.game.status,
-    snapshot_json: snapshot as unknown as Json,
+    snapshot_json: snapshotForDb as unknown as Json,
     system_json: snapshot.system as unknown as Json,
     legs_json: snapshot.legs as unknown as Json,
     meta_json: metaJson,
@@ -850,7 +884,7 @@ export async function updateTravLearningPrompt(
 export async function resolvePendingTravPredictions(limit = 20) {
   const { data, error } = await supabaseAdmin
     .from("trav_predictions")
-    .select("id, game_id, game_type, snapshot_json")
+    .select("id, game_id, game_type, snapshot_json, legs_json, system_json")
     .is("resolved_at", null)
     .order("created_at", { ascending: true })
     .limit(limit);
@@ -860,8 +894,15 @@ export async function resolvePendingTravPredictions(limit = 20) {
   const touched = new Set<string>();
 
   for (const row of data) {
-    const snapshot = row.snapshot_json as unknown as FetchSnapshot;
-    if (!snapshot?.game?.id) continue;
+    const snapshotBase = row.snapshot_json as unknown as FetchSnapshot;
+    if (!snapshotBase?.game?.id) continue;
+    // legs and system may have been stripped from snapshot_json to save space —
+    // fall back to their dedicated columns when missing.
+    const snapshot: FetchSnapshot = {
+      ...snapshotBase,
+      legs: (snapshotBase.legs ?? (row.legs_json as unknown as FetchSnapshot["legs"])) ?? [],
+      system: snapshotBase.system ?? (row.system_json as unknown as FetchSnapshot["system"]),
+    };
 
     const game = await fetchGame(row.game_id).catch(() => null);
     if (!game || game.status !== "results") continue;

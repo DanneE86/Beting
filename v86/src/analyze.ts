@@ -253,6 +253,8 @@ export function analyzeLeg(
       .sort((a, b) => b.betDistribution - a.betDistribution || b.combinedScore - a.combinedScore)
       .map((horse, index) => [horse.number, index + 1]),
   );
+  const fieldBasePct = rawHorses.length > 0 ? 100 / rawHorses.length : 10;
+  const skrellEdgeThreshold = Math.max(3.0, fieldBasePct * 0.45);
   const horses = rawHorses
     .map((horse) => {
       const estimatedWinPct =
@@ -263,11 +265,11 @@ export function analyzeLeg(
         horse.betDistribution > 0 &&
         horse.betDistribution >= 2 &&
         horse.betDistribution <= 22 &&
-        valueEdgePct >= 4.5 &&
+        valueEdgePct >= skrellEdgeThreshold &&
         horse.combinedScore >= 0.5 &&
         horse.formTrend !== "nedåtgående";
       const highlights = [...horse.highlights];
-      if (horse.betDistribution > 0 && valueEdgePct >= 5) {
+      if (horse.betDistribution > 0 && valueEdgePct >= skrellEdgeThreshold + 0.5) {
         highlights.unshift(`Modellen högre än strecken (+${valueEdgePct.toFixed(1)}%)`);
       }
       return {
@@ -322,10 +324,16 @@ export function analyzeLeg(
     analystComment: buildHorseAnalystComment(horse, index + 1, spread),
   }));
 
+  const isRule7 = normalizedRuleId === "rule7";
+  const isDd = gameType === "dd";
+  // DD: lägre tröskel → mer aggressiva spikar på 2-loppsfavoriter; Rule7: högre tröskel för stabilitet
+  const spikThreshold = isDd ? 0.58 : isRule7 ? 0.80 : 0.72;
+  const bredThreshold = isDd ? 0.50 : isRule7 ? 0.65 : 0.6;
+
   let recommendation: LegAnalysis["recommendation"] = "gardering";
-  if (bankabilityScore >= 0.72) {
+  if (bankabilityScore >= spikThreshold) {
     recommendation = "spik";
-  } else if (opennessScore >= 0.6) {
+  } else if (opennessScore >= bredThreshold) {
     recommendation = "bred";
   }
 
@@ -342,6 +350,7 @@ export function analyzeLeg(
     opennessScore: Math.round(opennessScore * 100) / 100,
     tipNote:
       `${buildTipNote(modelTop)} · Bank ${Math.round(bankabilityScore * 100)}% · Öppenhet ${Math.round(opennessScore * 100)}%`,
+    conservativeGardering: isRule7,
   };
 }
 

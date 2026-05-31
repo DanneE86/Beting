@@ -102,3 +102,36 @@ export function daysSinceLast(matches: ScheduleMatchRow[]): number | null {
   if (!last?.date) return null;
   return Math.max(0, Math.round((Date.now() - new Date(last.date).getTime()) / 86400000));
 }
+
+/**
+ * H2H numerisk justering — returnerar pp-justeringar (±) för 1X2 baserade
+ * på inbördes historik från hemmalagets perspektiv.
+ * Max ±4pp: tillräcklig signal utan att dominera, kräver ≥3 matcher.
+ */
+export function h2hAdjustmentPp(
+  h2h: { date?: string; result: "W" | "D" | "L" }[],
+  maxPp = 4,
+): { homeAdj: number; drawAdj: number; awayAdj: number } {
+  if (h2h.length < 3) return { homeAdj: 0, drawAdj: 0, awayAdj: 0 };
+  let wSum = 0;
+  let homeScore = 0;
+  let drawWeight = 0;
+  for (const m of h2h) {
+    const w = matchWeight(m.date);
+    wSum += w;
+    if (m.result === "W") homeScore += w;
+    else if (m.result === "L") homeScore -= w;
+    else drawWeight += w; // D bidrar till draw-signal
+  }
+  if (wSum < 0.1) return { homeAdj: 0, drawAdj: 0, awayAdj: 0 };
+  const ratio = homeScore / wSum; // -1 (away dominerar) → +1 (home dominerar)
+  // Om H2H har hög andel kryss → liten drawAdj
+  const drawRatio = drawWeight / wSum;
+  const drawAdj = drawRatio >= 0.4 ? 2 : 0;
+  const homeAdj = Math.round(ratio * maxPp);
+  return {
+    homeAdj,
+    drawAdj,
+    awayAdj: -homeAdj,
+  };
+}

@@ -17,6 +17,24 @@ export type BttsPrediction = {
   confidence: "låg" | "medel" | "hög";
 };
 
+/** Sannolikhet för över 2.5 mål (dvs 3+) från Dixon-Coles-matris. */
+export function over25ProbFromMatrix(matrix: number[][]): number {
+  let p = 0;
+  for (let i = 0; i < matrix.length; i++) {
+    for (let j = 0; j < (matrix[i]?.length ?? 0); j++) {
+      if (i + j >= 3) p += matrix[i][j] ?? 0;
+    }
+  }
+  return Math.round(p * 1000) / 10;
+}
+
+/** Tips för Över/Under 2.5 mål baserat på sannolikhet. */
+export function over25Decision(pct: number): { call: "ja" | "nej" | "osäker" } {
+  if (pct >= 55) return { call: "ja" };
+  if (pct <= 45) return { call: "nej" };
+  return { call: "osäker" };
+}
+
 /** BTTS% från Dixon-Coles-matris (summa celler där båda gör ≥1 mål). */
 export function bttsProbFromMatrix(matrix: number[][]): number {
   let p = 0;
@@ -111,6 +129,8 @@ export function predictBtts(input: {
   calibrationBttsPct?: number;
   homeAbsenceScore?: number;
   awayAbsenceScore?: number;
+  homeImportanceBttsPp?: number;
+  awayImportanceBttsPp?: number;
   homeName: string;
   awayName: string;
 }): BttsPrediction {
@@ -159,7 +179,9 @@ export function predictBtts(input: {
   // Nyckelavbräck sänker sannolikheten att båda gör mål
   const absPenalty =
     ((input.homeAbsenceScore ?? 0) + (input.awayAbsenceScore ?? 0)) * 1.2;
-  pct = Math.max(8, Math.min(92, pct - absPenalty));
+  const importancePenaltyPp =
+    (input.homeImportanceBttsPp ?? 0) + (input.awayImportanceBttsPp ?? 0);
+  pct = Math.max(8, Math.min(92, pct - absPenalty - importancePenaltyPp));
 
   pct = Math.round(pct * 10) / 10;
 
@@ -180,6 +202,7 @@ export function predictBtts(input: {
   }
   parts.push(`ligasnitt ${leaguePct.toFixed(0)}%`);
   if (absPenalty > 0) parts.push(`avbräck −${absPenalty.toFixed(0)}%`);
+  if (importancePenaltyPp > 0) parts.push(`nyckelspelarbortfall −${importancePenaltyPp.toFixed(0)}%`);
 
   const callSv = call === "ja" ? "Ja" : call === "nej" ? "Nej" : "Osäker";
   const reason = `BTTS ${callSv} (båda gör mål ${pct.toFixed(0)}%, ${confidence} säkerhet): ${parts.join(" · ")}.`;

@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { LEAGUES } from "./fotmob.functions";
-import { fetchAllsvenskanAdvanced, findBolldataRow } from "./bolldata.functions";
+import { fetchAllsvenskanAdvanced } from "./bolldata.functions";
+import { fetchLeagueXG, findXgRow, type XgRow } from "./understat.functions";
 import { getTransfermarktInjuries } from "./injuries.functions";
 import { fetchMatchdaySquad, type MatchdaySquad } from "./squads.functions";
 import {
@@ -28,7 +29,7 @@ import {
 } from "./football-rules.server";
 import { formatFootballBettingTip, pickTopPct } from "./football-tip";
 import type { FootballRule } from "./football-rulebook";
-import { predictBtts } from "./btts-model";
+import { predictBtts, over25ProbFromMatrix, over25Decision } from "./btts-model";
 import { calibrationToAdjustments } from "./calibration";
 import {
   espnGet,
@@ -45,6 +46,7 @@ import {
   computeGoalStats,
   daysSinceLast,
   goalStatsForVenue,
+  h2hAdjustmentPp,
   homeAwaySplitForm,
   type ScheduleMatchRow,
 } from "./form-stats";
@@ -79,6 +81,13 @@ import {
 import { getModelPromptText } from "./model-prompts.server";
 import { getLeaguePromptText } from "./prompts.functions";
 import { getRefereeProfile } from "./referee-profile";
+import {
+  getTeamImportancePlayers,
+  findMissingImportancePlayers,
+  calcImportanceAbsencePenalty,
+} from "./player-stats.server";
+import { currentSeasonLabel } from "./season-label";
+import { applyPlayerLineupRules } from "./player-lineup-rules";
 
 async function teamRoster(leagueSlug: string, teamId: string) {
   try {
@@ -111,6 +120,11 @@ function normalizeName(name: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]/g, "");
 }
+
+// Hur stor andel av en spelares frånvaro-score som påverkar attack vs försvar.
+// G=målvakt påverkar bara försvar; F=forward påverkar mest attack.
+const POS_ATTACK_SHARE: Record<string, number> = { G: 0.0, D: 0.2, M: 0.5, F: 0.9 };
+const POS_DEFENSE_SHARE: Record<string, number> = { G: 1.0, D: 0.8, M: 0.5, F: 0.1 };
 
 function buildKeyAbsenceReport(
   roster: RosterPlayer[],
@@ -166,11 +180,39 @@ function buildKeyAbsenceReport(
     {} as Record<string, number>,
   );
 
+  const absenceScore = Math.round(keyAbsences.reduce((sum, p) => sum + p.score, 0) * 10) / 10;
+
+  // Positions-specifik uppdelning: attack (F, M) vs försvar (G, D, M)
+  let rawAttack = 0;
+  let rawDefense = 0;
+  for (const p of keyAbsences) {
+    const atkShare = POS_ATTACK_SHARE[p.pos] ?? 0.5;
+    const defShare = POS_DEFENSE_SHARE[p.pos] ?? 0.5;
+    rawAttack += p.score * atkShare;
+    rawDefense += p.score * defShare;
+  }
+
   return {
     keyAbsences,
-    absenceScore: Math.round(keyAbsences.reduce((sum, player) => sum + player.score, 0) * 10) / 10,
+    absenceScore,
+    attackScore: Math.round(rawAttack * 10) / 10,
+    defenseScore: Math.round(rawDefense * 10) / 10,
     missingByPos,
   };
+}
+
+/** Returnerar datum (ISO) för nästa kommande match för ett lag, om det finns i ESPN-svaret. */
+async function teamNextMatchDate(leagueSlug: string, teamId: string): Promise<string | null> {
+  try {
+    const data: any = await espnGet(teamScheduleUrl(leagueSlug, teamId));
+    const events: any[] = data?.events ?? [];
+    const upcoming = events
+      .filter((e) => !e.status?.type?.completed && e.date)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    return upcoming[0]?.date ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function teamScheduleAll(leagueSlug: string, teamId: string): Promise<ScheduleMatchRow[]> {
@@ -389,14 +431,15 @@ const predictMatchInputSchema = z.object({
 });
 
 function buildStatisticalPrediction(input: {
+  leagueId: string;
   homeName: string;
   awayName: string;
   homeStanding?: StandingRow;
   awayStanding?: StandingRow;
   homeForm: { result: string }[];
   awayForm: { result: string }[];
-  homeSchedule: MatchRow[];
-  awaySchedule: MatchRow[];
+  homeSchedule: ScheduleMatchRow[];
+  awaySchedule: ScheduleMatchRow[];
   homeAtHomeForm: { result: string }[];
   awayOnRoadForm: { result: string }[];
   homeGoalStats: ReturnType<typeof computeGoalStats>;
@@ -408,6 +451,8 @@ function buildStatisticalPrediction(input: {
   missingAway: string[];
   homeAbsenceScore?: number;
   awayAbsenceScore?: number;
+  homeImportancePenalty?: { extraGoalPenalty: number; extraGoalDefensePenalty?: number; bttsPenaltyPp: number; missingKeyPlayers: { name: string; importance_score: number; goalImpact: number }[] };
+  awayImportancePenalty?: { extraGoalPenalty: number; extraGoalDefensePenalty?: number; bttsPenaltyPp: number; missingKeyPlayers: { name: string; importance_score: number; goalImpact: number }[] };
   calibration?: LeagueCalibration | null;
   leagueParams?: LeagueModelParams | null;
   archiveHome?: TeamArchiveRatings | null;
@@ -418,15 +463,16 @@ function buildStatisticalPrediction(input: {
   optaMatch?: OptaMatch | null;
   preMatchChecklist?: ReturnType<typeof buildPreMatchChecklistData>;
   eventMeta?: PreMatchChecklistData["eventMeta"];
-  homeName?: string;
-  awayName?: string;
-  homeStanding?: StandingRow;
-  awayStanding?: StandingRow;
   homeAbsenceReport?: ReturnType<typeof buildKeyAbsenceReport>;
   awayAbsenceReport?: ReturnType<typeof buildKeyAbsenceReport>;
   footballRules?: FootballRule[];
+  homeXgRow?: XgRow | null;
+  awayXgRow?: XgRow | null;
+  h2h?: ReturnType<typeof buildH2H>;
+  hoursToKickoff?: number | null;
 }) {
   const {
+    leagueId,
     homeName,
     awayName,
     homeStanding,
@@ -444,6 +490,8 @@ function buildStatisticalPrediction(input: {
     missingAway,
     homeAbsenceScore = 0,
     awayAbsenceScore = 0,
+    homeImportancePenalty,
+    awayImportancePenalty,
     calibration,
     leagueParams,
     archiveHome,
@@ -457,6 +505,10 @@ function buildStatisticalPrediction(input: {
     homeAbsenceReport,
     awayAbsenceReport,
     footballRules = [],
+    homeXgRow,
+    awayXgRow,
+    h2h,
+    hoursToKickoff,
   } = input;
 
   const leagueAvg =
@@ -490,9 +542,48 @@ function buildStatisticalPrediction(input: {
     awayDefense *= 1 + (awayStanding.ga / played - leagueAvg / 2) * 0.08;
   }
 
-  // Nyckelavbräck: ungefär 0.15–0.25 mål per poäng absenceScore
-  homeAttack = Math.max(0.4, homeAttack - homeAbsenceScore * 0.06);
-  awayAttack = Math.max(0.4, awayAttack - awayAbsenceScore * 0.06);
+  // xG-blending: blend in xG/xGA per game som renare signal (tar bort lycka).
+  // Vikt 40% xG + 60% faktiska mål — tillräckligt för att dämpa regression
+  // utan att tappa matchspecifik information.
+  if (homeXgRow && homeXgRow.played >= 5) {
+    const xgPg = homeXgRow.xG / homeXgRow.played;
+    const xgaPg = homeXgRow.xGA / homeXgRow.played;
+    homeAttack = 0.60 * homeAttack + 0.40 * xgPg;
+    homeDefense = 0.60 * homeDefense + 0.40 * xgaPg;
+  }
+  if (awayXgRow && awayXgRow.played >= 5) {
+    const xgPg = awayXgRow.xG / awayXgRow.played;
+    const xgaPg = awayXgRow.xGA / awayXgRow.played;
+    awayAttack = 0.60 * awayAttack + 0.40 * xgPg;
+    awayDefense = 0.60 * awayDefense + 0.40 * xgaPg;
+  }
+
+  // Positions-specifik frånvaro: forwards/mittfältare påverkar attack,
+  // målvakt/backar påverkar försvar (ökar mål insläppta).
+  const hAtkScore = homeAbsenceReport?.attackScore ?? homeAbsenceScore * 0.6;
+  const hDefScore = homeAbsenceReport?.defenseScore ?? homeAbsenceScore * 0.4;
+  const aAtkScore = awayAbsenceReport?.attackScore ?? awayAbsenceScore * 0.6;
+  const aDefScore = awayAbsenceReport?.defenseScore ?? awayAbsenceScore * 0.4;
+
+  homeAttack = Math.max(0.4, homeAttack - hAtkScore * 0.08);
+  homeDefense = Math.max(0.3, homeDefense + hDefScore * 0.06);
+  awayAttack = Math.max(0.4, awayAttack - aAtkScore * 0.08);
+  awayDefense = Math.max(0.3, awayDefense + aDefScore * 0.06);
+
+  // DB-baserad importance-penalty: förstärkt justering när startelvan är bekräftad
+  // och en nyckelspelare (hög importance_score) saknas i startaufstellung.
+  if (homeImportancePenalty?.extraGoalPenalty) {
+    homeAttack = Math.max(0.4, homeAttack - homeImportancePenalty.extraGoalPenalty);
+  }
+  if (homeImportancePenalty?.extraGoalDefensePenalty) {
+    homeDefense = Math.max(0.3, homeDefense + homeImportancePenalty.extraGoalDefensePenalty);
+  }
+  if (awayImportancePenalty?.extraGoalPenalty) {
+    awayAttack = Math.max(0.4, awayAttack - awayImportancePenalty.extraGoalPenalty);
+  }
+  if (awayImportancePenalty?.extraGoalDefensePenalty) {
+    awayDefense = Math.max(0.3, awayDefense + awayImportancePenalty.extraGoalDefensePenalty);
+  }
 
   if (archiveHome) {
     homeAttack = 0.55 * homeAttack + 0.45 * archiveHome.attack;
@@ -518,7 +609,14 @@ function buildStatisticalPrediction(input: {
   let predictedScore = poisson.predictedScore;
 
   if (marketOdds?.marketProbPct) {
-    const modelWeight = leagueParams?.marketBlendWeight ?? 0.48;
+    // Dynamisk vikt: marknaden är effektivare ju närmare avspark.
+    const baseWeight = leagueParams?.marketBlendWeight ?? 0.48;
+    const modelWeight =
+      hoursToKickoff == null ? baseWeight
+      : hoursToKickoff > 72  ? Math.min(baseWeight, 0.40) // tidigt i veckan — lita mer på modellen
+      : hoursToKickoff > 24  ? baseWeight
+      : hoursToKickoff > 3   ? Math.max(baseWeight, 0.55) // startelvor klara
+      :                        Math.max(baseWeight, 0.65); // <3h — marknad maximalt effektiv
     const blended = blendWithMarket(
       { homeWinPct, drawPct, awayWinPct },
       marketOdds.marketProbPct,
@@ -574,6 +672,22 @@ function buildStatisticalPrediction(input: {
     ({ homeWinPct, drawPct, awayWinPct } = ruled.probs);
   }
 
+  // H2H numerisk justering: inbördes historik från hemmalagets perspektiv.
+  // Appliceras sist (efter kalibrering och pro-regler) som en mild, datadrivna signal.
+  if (h2h && h2h.length >= 3) {
+    const adj = h2hAdjustmentPp(h2h);
+    homeWinPct = Math.max(5, homeWinPct + adj.homeAdj);
+    awayWinPct = Math.max(5, awayWinPct + adj.awayAdj);
+    drawPct = Math.max(18, drawPct + adj.drawAdj);
+    if (adj.homeAdj !== 0 || adj.drawAdj !== 0) {
+      // Åternormalisera utan att normalizePcts förvränger riktningen
+      const sum = homeWinPct + drawPct + awayWinPct;
+      homeWinPct = Math.round((homeWinPct / sum) * 1000) / 10;
+      drawPct = Math.round((drawPct / sum) * 1000) / 10;
+      awayWinPct = Math.round((1000 - homeWinPct * 10 - drawPct * 10) / 10);
+    }
+  }
+
   const outcome = pickOutcome(homeWinPct, drawPct, awayWinPct);
 
   let confidence = deriveConfidence(homeWinPct, drawPct, awayWinPct);
@@ -626,7 +740,10 @@ function buildStatisticalPrediction(input: {
 
   const proAdvice = buildProBettingAdvice(
     { homeWinPct, drawPct, awayWinPct },
-    { marketProbPct: marketOdds?.marketProbPct },
+    {
+      marketProbPct: marketOdds?.marketProbPct,
+      decimalOdds: marketOdds?.decimalOdds ?? undefined,
+    },
     confidence,
   );
   confidence = proAdvice.confidence;
@@ -651,10 +768,63 @@ function buildStatisticalPrediction(input: {
         : undefined,
     homeAbsenceScore,
     awayAbsenceScore,
+    homeImportanceBttsPp: homeImportancePenalty?.bttsPenaltyPp,
+    awayImportanceBttsPp: awayImportancePenalty?.bttsPenaltyPp,
     homeName,
     awayName,
   });
-  const bttsCall = btts.call;
+  // Spelarsspecifika lineup-regler (BTTS/Ö2.5 justeras efter bekräftad startelva)
+  const playerRules =
+    lineups.released && lineups.home.starters.length
+      ? applyPlayerLineupRules(
+          leagueId ?? "",
+          lineups.home.starters,
+          lineups.away.starters,
+          homeName,
+          awayName,
+        )
+      : { bttsDeltaTotal: 0, over25DeltaTotal: 0, appliedRules: [] };
+
+  // Applicera player-rules på BTTS och Ö2.5
+  const adjustedBttsPct = Math.max(5, Math.min(95, btts.pct + playerRules.bttsDeltaTotal));
+  const { call: bttsCall, confidence: bttsConfidence } = (() => {
+    if (adjustedBttsPct >= 54) return { call: "ja" as const, confidence: (adjustedBttsPct >= 62 ? "hög" : adjustedBttsPct >= 56 ? "medel" : "låg") as "låg" | "medel" | "hög" };
+    if (adjustedBttsPct <= 46) return { call: "nej" as const, confidence: (adjustedBttsPct <= 38 ? "hög" : adjustedBttsPct <= 44 ? "medel" : "låg") as "låg" | "medel" | "hög" };
+    return { call: "osäker" as const, confidence: "låg" as const };
+  })();
+
+  const playerRulesBttsNote = playerRules.appliedRules
+    .filter((r) => r.bttsDelta !== 0)
+    .map((r) => `${r.bttsDelta > 0 ? "+" : ""}${r.bttsDelta}pp (${r.note.split("→")[0].trim()})`)
+    .join("; ");
+  const finalBttsReason = playerRulesBttsNote
+    ? `${btts.reason.replace(/\.$/, "")}; spelarprofil: ${playerRulesBttsNote} → justerad ${adjustedBttsPct.toFixed(0)}%.`
+    : btts.reason;
+
+  const rawOver25Pct = poisson.matrix.length > 0
+    ? over25ProbFromMatrix(poisson.matrix)
+    : Math.round((1 - Math.exp(-(poisson.lamH + poisson.lamA)) * (1 + poisson.lamH + poisson.lamA + (poisson.lamH + poisson.lamA) ** 2 / 2)) * 1000) / 10;
+  const over25Pct = Math.max(5, Math.min(95, rawOver25Pct + playerRules.over25DeltaTotal));
+  const { call: over25Call } = over25Decision(over25Pct);
+
+  // Ö2.5 marknads-edge: jämför modellens sannolikhet mot bookmakerlinjen.
+  let over25ValueBet: string | null = null;
+  const ouMarket = marketOdds?.overUnder;
+  if (ouMarket?.overOdds && ouMarket.line <= 2.75) {
+    const toDec = (ml: number) => ml > 0 ? ml / 100 + 1 : 100 / Math.abs(ml) + 1;
+    const decO = toDec(ouMarket.overOdds);
+    const decU = ouMarket.underOdds ? toDec(ouMarket.underOdds) : null;
+    // Ta bort overround för att få rena sannolikheter
+    const iO = 1 / decO;
+    const iU = decU ? 1 / decU : 1 - iO;
+    const mktOverPct = Math.round((iO / (iO + iU)) * 1000) / 10;
+    const edgeO25 = Math.round((over25Pct - mktOverPct) * 10) / 10;
+    if (edgeO25 >= 5) {
+      over25ValueBet = `Ö2.5 edge: modell ${over25Pct}% vs marknad ${mktOverPct}% (+${edgeO25}p) — spelvärt.`;
+    } else if (edgeO25 <= -5) {
+      over25ValueBet = `U2.5 edge: modell ${over25Pct}% vs marknad ${mktOverPct}% (${edgeO25}p) — spelvärt under.`;
+    }
+  }
 
   predictedScore = resolvePredictedScore({
     matrix: poisson.matrix,
@@ -665,11 +835,28 @@ function buildStatisticalPrediction(input: {
     fallbackScore: predictedScore,
   });
 
+  // Bygg importance-noteringar för nyckelspelare som inte startar
+  const impNoteParts: string[] = [];
+  if (homeImportancePenalty?.missingKeyPlayers?.length) {
+    const names = homeImportancePenalty.missingKeyPlayers.map((p) => `${p.name} (imp:${p.importance_score})`).join(", ");
+    impNoteParts.push(`${homeName} saknar: ${names}`);
+  }
+  if (awayImportancePenalty?.missingKeyPlayers?.length) {
+    const names = awayImportancePenalty.missingKeyPlayers.map((p) => `${p.name} (imp:${p.importance_score})`).join(", ");
+    impNoteParts.push(`${awayName} saknar: ${names}`);
+  }
+  const importanceNote = impNoteParts.length ? ` Viktiga spelare borta från startuppställning: ${impNoteParts.join("; ")}.` : "";
+
+  // Lägg till player-rules-signaler i keyFactors
+  for (const rule of playerRules.appliedRules) {
+    keyFactors.push(`Spelarsignal: ${rule.note} (BTTS ${rule.bttsDelta > 0 ? "+" : ""}${rule.bttsDelta}pp, Ö2.5 ${rule.over25Delta > 0 ? "+" : ""}${rule.over25Delta}pp)`);
+  }
+
   const lineupNotes =
     lineups.released && (missingHome.length || missingAway.length)
-      ? `Startelvor släppta. Saknas: ${missingHome.length ? homeName + " (" + missingHome.slice(0, 3).join(", ") + ")" : ""}${missingHome.length && missingAway.length ? "; " : ""}${missingAway.length ? awayName + " (" + missingAway.slice(0, 3).join(", ") + ")" : ""}.`
+      ? `Startelvor släppta. Saknas: ${missingHome.length ? homeName + " (" + missingHome.slice(0, 3).join(", ") + ")" : ""}${missingHome.length && missingAway.length ? "; " : ""}${missingAway.length ? awayName + " (" + missingAway.slice(0, 3).join(", ") + ")" : ""}.${importanceNote}`
       : lineups.released
-        ? "Startelvor släppta enligt ESPN."
+        ? `Startelvor släppta enligt ESPN.${importanceNote}`
         : "Startelvor ej släppta ännu.";
 
   return {
@@ -681,7 +868,10 @@ function buildStatisticalPrediction(input: {
     keyFactors: keyFactors.slice(0, 6),
     bettingTip: simpleBettingTip,
     bttsCall,
-    bttsReason: btts.reason,
+    bttsReason: finalBttsReason,
+    over25Pct,
+    over25Call,
+    over25ValueBet,
     valueBet: proAdvice.valueBet,
     lineupNotes,
     lineupValueShift: (missingHome.length || missingAway.length ? "okänt" : "oförändrat") as
@@ -697,6 +887,7 @@ function buildStatisticalPrediction(input: {
       ? {
           decimalOdds: marketOdds.decimalOdds,
           marketProbPct: marketOdds.marketProbPct,
+          overUnder: marketOdds.overUnder,
           books: marketOdds.providers,
         }
       : null,
@@ -710,7 +901,7 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
     const apiKey = process.env.LOVABLE_API_KEY;
 
     const lg = LEAGUES.find((l) => l.id === data.leagueId);
-    const [standings, homeSchedule, awaySchedule, homeRoster, awayRoster, bolldata, lineups, homeInjuries, awayInjuries] =
+    const [standings, homeSchedule, awaySchedule, homeRoster, awayRoster, rawXgRows, lineups, homeInjuries, awayInjuries] =
       await Promise.all([
         leagueStandings(data.leagueId),
         teamScheduleAll(data.leagueId, data.homeId),
@@ -718,17 +909,26 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
         teamRoster(data.leagueId, data.homeId),
         teamRoster(data.leagueId, data.awayId),
         data.leagueId === "swe.1"
-          ? fetchAllsvenskanAdvanced()
-          : Promise.resolve({ rows: [] }),
+          ? fetchAllsvenskanAdvanced().then((d) =>
+              d.rows.map((r) => ({
+                name: r.name,
+                xG: r.xG,
+                xGA: r.xGA,
+                xPts: r.xPts ?? 0,
+                played: r.played,
+                luck: r.luck,
+              }) satisfies XgRow),
+            )
+          : fetchLeagueXG(data.leagueId).catch(() => [] as XgRow[]),
         getLineups(data.leagueId, data.homeId, data.awayId),
         getTransfermarktInjuries(data.homeName),
         getTransfermarktInjuries(data.awayName),
       ]);
 
-    const homeForm = homeSchedule.slice(-6).map((m: MatchRow) => ({
+    const homeForm = homeSchedule.slice(-6).map((m: ScheduleMatchRow) => ({
       result: m.result, score: m.score, opponent: m.opponent, homeAway: m.homeAway,
     }));
-    const awayForm = awaySchedule.slice(-6).map((m: MatchRow) => ({
+    const awayForm = awaySchedule.slice(-6).map((m: ScheduleMatchRow) => ({
       result: m.result, score: m.score, opponent: m.opponent, homeAway: m.homeAway,
     }));
 
@@ -779,8 +979,19 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
           }
         : null;
 
-    // Allsvenskan: hämta dagens trupp från klubbens hemsida om möjligt.
+    // Rotationsdetektering: om ett lag spelar igen inom 4 dagar EFTER denna match
+    // finns rotation-risk (tränare kan vila nycklar). Best-effort parallel fetch.
     const matchDate = lineups.eventDate ? new Date(lineups.eventDate) : new Date();
+    const [homeNextDate, awayNextDate] = await Promise.all([
+      teamNextMatchDate(data.leagueId, data.homeId).catch(() => null),
+      teamNextMatchDate(data.leagueId, data.awayId).catch(() => null),
+    ]);
+    const daysBetween = (a: Date, b: string | null) =>
+      b ? Math.round((new Date(b).getTime() - a.getTime()) / 86400000) : null;
+    const homeRotationDays = daysBetween(matchDate, homeNextDate);
+    const awayRotationDays = daysBetween(matchDate, awayNextDate);
+    const homeRotationRisk = homeRotationDays != null && homeRotationDays >= 0 && homeRotationDays <= 4;
+    const awayRotationRisk = awayRotationDays != null && awayRotationDays >= 0 && awayRotationDays <= 4;
     let homeMatchdaySquad: MatchdaySquad = { source: "club-site:skipped", url: null, players: [] };
     let awayMatchdaySquad: MatchdaySquad = { source: "club-site:skipped", url: null, players: [] };
     if (data.leagueId === "swe.1") {
@@ -814,20 +1025,59 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
       lineups.released,
     );
 
+    // DB-baserad importance-penalty: när startelvan är bekräftad, kolla vilka
+    // nyckelspelare som INTE startar och beräkna en extra mål/BTTS-reduktion.
+    let homeImportancePenalty = { extraGoalPenalty: 0, bttsPenaltyPp: 0, missingKeyPlayers: [] as { name: string; importance_score: number; goalImpact: number }[] };
+    let awayImportancePenalty = { extraGoalPenalty: 0, bttsPenaltyPp: 0, missingKeyPlayers: [] as { name: string; importance_score: number; goalImpact: number }[] };
+
+    if (lineups.released) {
+      const season = currentSeasonLabel(data.leagueId);
+      const [homeDbPlayers, awayDbPlayers] = await Promise.all([
+        getTeamImportancePlayers(data.leagueId, season, data.homeId).catch(() => []),
+        getTeamImportancePlayers(data.leagueId, season, data.awayId).catch(() => []),
+      ]);
+
+      if (homeDbPlayers.length) {
+        const missingHomeImportant = findMissingImportancePlayers(
+          homeDbPlayers,
+          lineups.home.starters,
+          lineups.home.bench,
+        );
+        homeImportancePenalty = calcImportanceAbsencePenalty(missingHomeImportant, data.leagueId);
+      }
+      if (awayDbPlayers.length) {
+        const missingAwayImportant = findMissingImportancePlayers(
+          awayDbPlayers,
+          lineups.away.starters,
+          lineups.away.bench,
+        );
+        awayImportancePenalty = calcImportanceAbsencePenalty(missingAwayImportant, data.leagueId);
+      }
+    }
+
     const homeStanding = standings.find((s: StandingRow) => s.teamId === data.homeId);
     const awayStanding = standings.find((s: StandingRow) => s.teamId === data.awayId);
 
+    // Berika xG-rader med luck (pts − xPts) för de ligor där vi har Understat-data
+    // men xPts inte inkluderar faktiska poäng (bolldata.se gör det, Understat gör det inte).
+    const xgRows: XgRow[] = rawXgRows.map((r) => {
+      if (r.luck != null) return r;
+      const normName = (s: string) =>
+        s.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const standing = standings.find(
+        (s) =>
+          normName(s.name).includes(normName(r.name)) ||
+          normName(r.name).includes(normName(s.name)),
+      );
+      if (!standing) return r;
+      return { ...r, luck: Math.round((standing.pts - r.xPts) * 10) / 10 };
+    });
+
+    const homeXgRow = findXgRow(xgRows, data.homeName) ?? null;
+    const awayXgRow = findXgRow(xgRows, data.awayName) ?? null;
+
     const injuredHome = homeRoster.filter((p: { injured: string | null }) => p.injured);
     const injuredAway = awayRoster.filter((p: { injured: string | null }) => p.injured);
-
-    const homeAdv =
-      data.leagueId === "swe.1"
-        ? findBolldataRow(bolldata.rows, data.homeName)
-        : undefined;
-    const awayAdv =
-      data.leagueId === "swe.1"
-        ? findBolldataRow(bolldata.rows, data.awayName)
-        : undefined;
 
     const seasonContext = buildSeasonContext(standings, data.homeId, data.awayId, data.leagueId);
 
@@ -856,14 +1106,15 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
         goalDiff: homeStanding?.gd,
         expectedPoints: homeStanding?.xPts,
         luckIndex: homeStanding?.luck,
-        xG_real: homeAdv?.xG,
-        xGA_real: homeAdv?.xGA,
-        xPts_real: homeAdv?.xPts,
-        luck_real: homeAdv?.luck,
+        xG_real: homeXgRow?.xG,
+        xGA_real: homeXgRow?.xGA,
+        xPts_real: homeXgRow?.xPts,
+        luck_real: homeXgRow?.luck,
         last5: homeForm,
         last5AtHome: homeAtHomeForm,
         goalTrendsLast10: homeGoalStats,
         restDays: homeRestDays,
+        rotationRisk: homeRotationRisk ? `Nästa match om ${homeRotationDays} d — rotation möjlig` : null,
         squad: homeRoster.map((p: { name: string }) => p.name),
         injuredFromFeed: injuredHome,
         confirmedInjuries: homeInjuries.injuries,
@@ -888,14 +1139,15 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
         goalDiff: awayStanding?.gd,
         expectedPoints: awayStanding?.xPts,
         luckIndex: awayStanding?.luck,
-        xG_real: awayAdv?.xG,
-        xGA_real: awayAdv?.xGA,
-        xPts_real: awayAdv?.xPts,
-        luck_real: awayAdv?.luck,
+        xG_real: awayXgRow?.xG,
+        xGA_real: awayXgRow?.xGA,
+        xPts_real: awayXgRow?.xPts,
+        luck_real: awayXgRow?.luck,
         last5: awayForm,
         last5OnRoad: awayOnRoadForm,
         goalTrendsLast10: awayGoalStats,
         restDays: awayRestDays,
+        rotationRisk: awayRotationRisk ? `Nästa match om ${awayRotationDays} d — rotation möjlig` : null,
         squad: awayRoster.map((p: { name: string }) => p.name),
         injuredFromFeed: injuredAway,
         confirmedInjuries: awayInjuries.injuries,
@@ -942,6 +1194,7 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
     const footballRules = await getActiveFootballRules().catch(() => []);
 
     const poissonBaselineInput = {
+      leagueId: data.leagueId,
       homeName: data.homeName,
       awayName: data.awayName,
       homeStanding,
@@ -961,6 +1214,8 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
       missingAway,
       homeAbsenceScore: homeAbsenceReport.absenceScore,
       awayAbsenceScore: awayAbsenceReport.absenceScore,
+      homeImportancePenalty,
+      awayImportancePenalty,
       calibration,
       leagueParams,
       archiveHome: archiveRatings.home,
@@ -974,6 +1229,12 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
       homeAbsenceReport,
       awayAbsenceReport,
       footballRules,
+      homeXgRow,
+      awayXgRow,
+      h2h,
+      hoursToKickoff: lineups.eventDate
+        ? (new Date(lineups.eventDate).getTime() - Date.now()) / 3_600_000
+        : null,
     };
 
     if (!apiKey) {
@@ -1009,7 +1270,7 @@ export async function generateMatchPrediction(data: z.infer<typeof predictMatchI
 - expectedPoints (xPts) = poäng laget BORDE haft baserat på målskillnad
 - luckIndex = poäng - xPts. + = överpresterat (regression väntad), − = otur (studsa tillbaka)
 - Hemmaplansfördel
-- Avancerad data (Allsvenskan, från bolldata.se): xG_real, xGA_real, xPts_real och luck_real (pts − xPts_real). Detta är faktisk skottkvalitetsdata och VIKTIGARE än xPts-proxyn när den finns. Vikta luck_real tungt: stark + = lag har haft tur, regression väntad. Stark − = lag har haft otur, sannolikt bättre framöver.
+- Avancerad data (xG_real, xGA_real, xPts_real, luck_real): hämtas från bolldata.se (Allsvenskan) eller Understat (EPL, La Liga, Bundesliga, Serie A, Ligue 1) — saknas för övriga ligor. Detta är faktisk skottkvalitetsdata och VIKTIGARE än xPts-proxyn när den finns. Vikta luck_real tungt: stark + = lag har haft tur, regression väntad. Stark − = lag har haft otur, sannolikt bättre framöver.
 - Personal: ${context.home.squad.length > 0 ? "Verkliga trupper för båda lagen finns i 'squad'-listorna." : "Trupp-data saknas."}
 - 'keyAbsences' och 'absenceScore' är förberäknade signaler för viktiga avbräck. Högre absenceScore = större tapp i laget. Detta ska väga TUNGT i Allsvenskan där enstaka nyckelspelare ofta flyttar sannolikheten mycket.
 
@@ -1038,6 +1299,7 @@ EXPERT-DATA (väg in i analysen):
 - 'last5AtHome' = hemmalagets form ENDAST på hemmaplan. 'last5OnRoad' = bortalagets form ENDAST på bortaplan. Använd dessa istället för bara 'last5' när du bedömer hemma-/bortakapacitet.
 - 'goalTrendsLast10' = snitt mål för/emot, BTTS%, Over 2.5%, clean sheets, failed-to-score (sista 10). Använd för att kalibrera 'predictedScore' och välja över/under-tips.
 - 'restDays' = dagar sedan senaste match. <4 dagar = matchtrötthet, risk för svagare prestation.
+- 'rotationRisk' (om satt) = laget har nästa match inom 4 dagar — tränaren kan välja att vila nycklar. Sätt detta som en explicit faktor i 'keyFactors' och sänk favorit-sannolikheten 3-5pp om det är hemmafavoriten.
 - 'eventMeta' = väder, domare, arena om ESPN har data.
 - 'eventMeta.refereeProfile' (om satt) = historisk domarprofil i samma liga: snitt gula/röda/fouls och stilklassning. Kortbenägen domare höjer varians, kortspel och risken för matchbilds-skifte.
 - 'marketOdds' = bookmakers konsensus med 'marketProbPct' (%-sannolikhet utan overround). JÄMFÖR alltid din egen homeWinPct/drawPct/awayWinPct mot marknaden. Om din sannolikhet skiljer >5%-enheter från marknaden = potentiellt VÄRDESPEL — nämn det explicit i 'bettingTip' och 'valueBet'.

@@ -24,7 +24,7 @@ export type { FetchSnapshot, GameOption };
 export { pickDefaultPoolGame };
 export { pickDefaultV85Game, pickDefaultV85Game as pickDefaultV86Game };
 
-export const TRAV_RULE_IDS = ["rule1", "rule2", "rule3", "rule4", "rule5", "rule6"] as const;
+export const TRAV_RULE_IDS = ["rule1", "rule2", "rule3", "rule4", "rule5", "rule6", "rule7"] as const;
 export const TRAV_RULE_IDS_WITH_ALL = [...TRAV_RULE_IDS, "all"] as const;
 
 export const v86ListGames = createServerFn({ method: "GET" })
@@ -72,8 +72,11 @@ export const v86Analyze = createServerFn({ method: "POST" })
       travsportAllowStaleCache: true,
     });
     const ruleId = snapshot.meta?.rule?.id ?? normalizeTravRuleId(data.ruleId);
+    const saveTimeout = new Promise<{ id: null; error: string }>((resolve) =>
+      setTimeout(() => resolve({ id: null, error: "Supabase timeout — historiken sparades inte." }), 12_000),
+    );
     const [saveResult, learningPromptText] = await Promise.all([
-      saveTravPrediction(snapshot).catch((error) => ({
+      Promise.race([saveTravPrediction(snapshot), saveTimeout]).catch((error) => ({
         id: null as string | null,
         error: (error as Error).message,
       })),
@@ -114,7 +117,7 @@ export const v86History = createServerFn({ method: "GET" })
       data.limit ?? 20,
       data.gameType && data.gameType !== "all" ? data.gameType : null,
       data.ruleId && data.ruleId !== "all" ? data.ruleId : null,
-    );
+    ).catch(() => ({ rows: [], prompts: [] }));
   });
 
 export const v86ResolveHistory = createServerFn({ method: "POST" })

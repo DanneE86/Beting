@@ -25,7 +25,21 @@ export type ProBettorContext = {
   homeAbsenceScore?: number;
   awayAbsenceScore?: number;
   marketProbPct?: { home: number; draw: number; away: number };
+  decimalOdds?: { home: number | null; draw: number | null; away: number | null };
 };
+
+/**
+ * Kelly Criterion (25% fractional Kelly för konservativ bankrullshantering).
+ * Returnerar rekommenderad insats i % av bankroll. 0 = inget spelvärde.
+ */
+export function kellyFraction(modelPct: number, decimalOdds: number): number {
+  if (decimalOdds <= 1 || modelPct <= 0 || modelPct >= 100) return 0;
+  const p = modelPct / 100;
+  const b = decimalOdds - 1; // netto-vinst per enhet
+  const fullKelly = (p * b - (1 - p)) / b;
+  // 25% Kelly — välbevisat balans mellan tillväxt och drawdown-risk
+  return Math.max(0, Math.round(fullKelly * 25 * 10) / 10);
+}
 
 const MIN_EDGE_TO_BET = 5;
 const MIN_EDGE_FOR_HIGH_CONF = 8;
@@ -116,11 +130,19 @@ export function buildProBettingAdvice(
 
   let valueBet = "Odds saknas — ingen marknadsjämförelse.";
   let edge = 0;
+  let kellySuggestion = "";
   if (ctx.marketProbPct) {
     const mkt = { H: ctx.marketProbPct.home, D: ctx.marketProbPct.draw, A: ctx.marketProbPct.away }[outcome];
     edge = Math.round((model - mkt) * 10) / 10;
+
+    const decOdds = ctx.decimalOdds
+      ? { H: ctx.decimalOdds.home, D: ctx.decimalOdds.draw, A: ctx.decimalOdds.away }[outcome]
+      : null;
+    const kelly = decOdds ? kellyFraction(model, decOdds) : 0;
+    if (kelly > 0) kellySuggestion = ` Kelly: ${kelly}% av bankroll.`;
+
     if (edge >= MIN_EDGE_TO_BET) {
-      valueBet = `Proffs-edge på ${tipLabel}: modell ${model}% vs marknad ${mkt}% (+${edge}%).`;
+      valueBet = `Proffs-edge på ${tipLabel}: modell ${model}% vs marknad ${mkt}% (+${edge}%).${kellySuggestion}`;
     } else if (edge <= -MIN_EDGE_TO_BET) {
       valueBet = `Marknaden ${mkt}% vs modell ${model}% — undvik ${tipLabel} (negativ edge).`;
     } else {
@@ -134,7 +156,7 @@ export function buildProBettingAdvice(
 
   const action =
     edge >= MIN_EDGE_TO_BET
-      ? `Spelvärd ${tipLabel} (${top}%, edge +${edge}%)`
+      ? `Spelvärd ${tipLabel} (${top}%, edge +${edge}%${kellySuggestion ? `, ${kellySuggestion.trim()}` : ""})`
       : edge <= -MIN_EDGE_TO_BET
         ? `Ingen action — marknaden prissatt bättre`
         : `Lean ${tipLabel} (${top}%) — liten/ingen edge, låg insats`;

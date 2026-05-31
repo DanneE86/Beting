@@ -210,6 +210,14 @@ export async function savePrediction(input: SavePredictionInput) {
     if (input.marketOdds) {
       updatePayload.market_odds_last_seen_at = nowIso;
     }
+    // Spara closing odds när vi är inom 2 timmar av avspark —
+    // dessa används sedan för CLV-beräkning vid upplösning.
+    if (input.eventDate && input.marketOdds) {
+      const hoursLeft = (new Date(input.eventDate).getTime() - Date.now()) / 3_600_000;
+      if (hoursLeft >= -0.5 && hoursLeft <= 2) {
+        updatePayload.market_odds_closing = input.marketOdds;
+      }
+    }
     const { error } = await supabaseAdmin
       .from("predictions")
       .update(updatePayload)
@@ -250,6 +258,8 @@ export type LeagueCalibration = {
   resolved: number;
   hitRate: number; // andel rätt 1X2 av resolved
   avgBrier: number | null;
+  avgClv: number | null; // Closing Line Value: modellPct − closingMarketPct för tippat utfall. >0 = real edge
+  clvN: number;          // antal matcher med CLV-data
   byConfidence: Record<string, { n: number; hits: number }>;
   outcomeBias: { H: number; D: number; A: number }; // andel rätt per faktiskt utfall
   predictedBias: { H: number; D: number; A: number }; // andel av tips per utfall
@@ -330,7 +340,7 @@ export async function getCalibration(leagueId: string): Promise<LeagueCalibratio
   const { data, error } = await supabaseAdmin
     .from("predictions")
     .select(
-      "predicted_outcome, actual_outcome, brier_score, confidence, actual_home_score, actual_away_score, home_name, away_name, home_win_pct, draw_pct, away_win_pct, postmortem, resolved_at",
+      "predicted_outcome, actual_outcome, brier_score, confidence, actual_home_score, actual_away_score, home_name, away_name, home_win_pct, draw_pct, away_win_pct, postmortem, resolved_at, market_odds_closing",
     )
     .eq("league_id", leagueId)
     .order("created_at", { ascending: false })
@@ -343,6 +353,8 @@ export async function getCalibration(leagueId: string): Promise<LeagueCalibratio
       resolved: 0,
       hitRate: 0,
       avgBrier: null,
+      avgClv: null,
+      clvN: 0,
       byConfidence: {},
       outcomeBias: { H: 0, D: 0, A: 0 },
       predictedBias: { H: 0, D: 0, A: 0 },
@@ -359,6 +371,8 @@ export async function getCalibration(leagueId: string): Promise<LeagueCalibratio
   let hits = 0;
   let brierSum = 0;
   let brierN = 0;
+  let clvSum = 0;
+  let clvN = 0;
   const byConfidence: Record<string, { n: number; hits: number }> = {};
   const outcomeCounts = { H: 0, D: 0, A: 0 };
   const outcomeHits = { H: 0, D: 0, A: 0 };
@@ -396,6 +410,18 @@ export async function getCalibration(leagueId: string): Promise<LeagueCalibratio
       goalsSum += Number(hs) + Number(as);
       if (Number(hs) > 0 && Number(as) > 0) bttsYes++;
     }
+    // CLV: modell-sannolikhet för tippat utfall minus stängningsoddsets implicerade sannolikhet
+    const closing = coerceMarketOddsSnapshot((r as any).market_odds_closing);
+    if (closing && r.predicted_outcome) {
+      const pred = r.predicted_outcome as "H" | "D" | "A";
+      const modelPct = { H: Number(r.home_win_pct), D: Number(r.draw_pct), A: Number(r.away_win_pct) }[pred];
+      const closingPct = { H: closing.marketProbPct.home, D: closing.marketProbPct.draw, A: closing.marketProbPct.away }[pred];
+      if (modelPct && closingPct) {
+        clvSum += modelPct - closingPct;
+        clvN++;
+      }
+    }
+
     const pm = (r.postmortem as any) ?? null;
     if (pm && !pm.preliminary) {
       if (Array.isArray(pm.lessons)) lessonsAll.push(...pm.lessons.map(String));
@@ -422,6 +448,8 @@ export async function getCalibration(leagueId: string): Promise<LeagueCalibratio
     resolved: resolved.length,
     hitRate: resolved.length ? hits / resolved.length : 0,
     avgBrier: brierN ? brierSum / brierN : null,
+    avgClv: clvN >= 5 ? Math.round((clvSum / clvN) * 10) / 10 : null,
+    clvN,
     byConfidence,
     outcomeBias: {
       H: outcomeCounts.H ? outcomeHits.H / outcomeCounts.H : 0,
@@ -517,6 +545,10 @@ export function buildCalibrationHint(cal: LeagueCalibration): string | null {
     out.push(
       `Statistik: ${cal.resolved} avgjorda tips av ${cal.total}, träffsäkerhet ${(cal.hitRate * 100).toFixed(0)}%${
         cal.avgBrier != null ? `, Brier ${cal.avgBrier.toFixed(3)} (lägre = bättre, 0.67 = slump)` : ""
+      }${
+        cal.avgClv != null
+          ? `, CLV ${cal.avgClv > 0 ? "+" : ""}${cal.avgClv.toFixed(1)}pp (${cal.clvN} matcher — ${cal.avgClv > 1 ? "positiv edge ✓" : cal.avgClv < -1 ? "negativ edge ✗" : "breakeven"})`
+          : ""
       }.`,
     );
   }

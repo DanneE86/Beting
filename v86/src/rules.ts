@@ -43,10 +43,17 @@ export const TRAV_RULES: Record<
     version: "rule6-v1",
     usesMarketData: true,
   },
+  rule7: {
+    id: "rule7",
+    label: "Regel 7: stabil månadsregel",
+    shortLabel: "Månadsregel",
+    version: "rule7-v1",
+    usesMarketData: true,
+  },
 };
 
 export function normalizeTravRuleId(ruleId?: string | null): TravRuleId {
-  if (ruleId === "rule2" || ruleId === "rule5" || ruleId === "rule6") return ruleId;
+  if (ruleId === "rule2" || ruleId === "rule5" || ruleId === "rule6" || ruleId === "rule7") return ruleId;
   return DEFAULT_TRAV_RULE_ID;
 }
 
@@ -179,6 +186,41 @@ export function defaultRuleCoverage(ruleId: TravRuleId): TravRuleCoverageGroup[]
         label: "Loppscenario",
         status: "available",
         detail: "Tempo/trip-proxy, spår och kusk/häst-kemi används för riskkontroll i spikval.",
+      },
+    ];
+  }
+
+  if (ruleId === "rule7") {
+    return [
+      {
+        id: "horseCore",
+        label: "Hästprofil",
+        status: "available",
+        detail: "Samma datakärna som Regel 6, men form och spårhistorik viktas extra för stabilitet.",
+      },
+      {
+        id: "technicalCore",
+        label: "Bredd-optimering",
+        status: "available",
+        detail: "Bredare gardering (min 4 hästar), max 2 spikar och höjd spik-tröskel — fler 6/8-träffar framför storvinstjakt.",
+      },
+      {
+        id: "expertConsensus",
+        label: "Marknadssignal",
+        status: "partial",
+        detail: "Marknadsdata används för att identifiera favoriter och skrällkandidater.",
+      },
+      {
+        id: "ratings",
+        label: "Stabilitet/Månadsplus",
+        status: "available",
+        detail: "Optimerad för plusmånad varje månad via fler träffar på lägre utdelningsnivåer.",
+      },
+      {
+        id: "paceProfile",
+        label: "Loppscenario",
+        status: "available",
+        detail: "Konservativ riskkontroll — gardering används där bankabilitet inte är uppenbar.",
       },
     ];
   }

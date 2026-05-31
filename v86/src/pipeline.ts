@@ -309,6 +309,7 @@ export async function buildSnapshotFromGame(
   const ruleId = normalizeTravRuleId(input.ruleId);
   const rule = TRAV_RULES[ruleId];
   const isRule6 = ruleId === "rule6";
+  const isRule7 = ruleId === "rule7";
 
   const autoBudget = input.autoBudget === true;
   const floorMinPayoutKr = (() => {
@@ -316,8 +317,9 @@ export async function buildSnapshotFromGame(
       const ddFloor = isRule6 ? 2_500 : defaultMinPayoutKr(gameType);
       return Math.max(1_000, input.targetMinPayoutKr ?? ddFloor);
     }
-    const mainFloor = isRule6 ? 60_000 : 30_000;
-    const mainDefault = isRule6 ? 90_000 : defaultMinPayoutKr(gameType);
+    // Rule7: sänkt målutdelning (50k) för fler träffar, rule6 kvar på 90k
+    const mainFloor = isRule7 ? 40_000 : isRule6 ? 60_000 : 30_000;
+    const mainDefault = isRule7 ? 50_000 : isRule6 ? 90_000 : defaultMinPayoutKr(gameType);
     return Math.max(mainFloor, input.targetMinPayoutKr ?? mainDefault);
   })();
 
@@ -366,24 +368,39 @@ export async function buildSnapshotFromGame(
     missingDataNotes = buildRule4MissingDataNotes(raceData);
   }
 
+  // Bana-specifika justeringar för DD baserade på historisk prestanda:
+  // Boden/Romme: favoriter vinner alltid → pool betalar knappt → kräv mer värde i picks.
+  // Gävle/Örebro: leg2-täckning svag → trackName skickas till systembyggaren för bias-justering.
+  const trackName = gameType === "dd" ? (game.races[0]?.track?.name ?? "") : "";
+  const trackAdjustedFloorPayout = (() => {
+    if (gameType !== "dd") return floorMinPayoutKr;
+    if (trackName === "Boden" || trackName === "Romme") return Math.max(floorMinPayoutKr, 3_500);
+    return floorMinPayoutKr;
+  })();
+
   const recommendedPlay = autoBudget
     ? gameType === "dd"
-      ? recommendDdPlay(game.id, gameType, legs, floorMinPayoutKr)
+      ? recommendDdPlay(game.id, gameType, legs, trackAdjustedFloorPayout)
       : recommendMainPoolPlay(game.id, gameType, legs, floorMinPayoutKr)
     : null;
+  // Rule7: standardbudget 700 kr för lite bredare täckning
+  const rule7DefaultBudgetKr = 700;
   const budgetKr =
     recommendedPlay?.budgetKr ??
     (gameType === "dd"
       ? input.budgetKr ?? defaultBudgetKr(gameType)
-      : AUTO_MAIN_POOL_BUDGETS_KR.includes((input.budgetKr ?? defaultBudgetKr(gameType)) as (typeof AUTO_MAIN_POOL_BUDGETS_KR)[number])
-        ? (input.budgetKr ?? defaultBudgetKr(gameType))
-        : defaultBudgetKr(gameType));
-  const targetMinPayoutKr = recommendedPlay?.targetMinPayoutKr ?? floorMinPayoutKr;
+      : isRule7 && !input.budgetKr
+        ? rule7DefaultBudgetKr
+        : AUTO_MAIN_POOL_BUDGETS_KR.includes((input.budgetKr ?? defaultBudgetKr(gameType)) as (typeof AUTO_MAIN_POOL_BUDGETS_KR)[number])
+          ? (input.budgetKr ?? defaultBudgetKr(gameType))
+          : defaultBudgetKr(gameType));
+  const targetMinPayoutKr = recommendedPlay?.targetMinPayoutKr ?? trackAdjustedFloorPayout;
   const builtSystem =
     recommendedPlay?.system ??
     buildSystem(game.id, gameType, legs, {
       budgetKr,
       targetMinPayoutKr,
+      trackName: gameType === "dd" ? trackName : undefined,
     });
   const system = {
     ...builtSystem,
@@ -392,7 +409,7 @@ export async function buildSnapshotFromGame(
 
   // DD-RAD 2: alternativt system med exakt 1 gemensam häst per lopp
   const builtSystemAlt = gameType === "dd"
-    ? recommendedPlay?.systemAlt ?? buildDdSystemPair(game.id, gameType, legs, { budgetKr, targetMinPayoutKr }).alternative
+    ? recommendedPlay?.systemAlt ?? buildDdSystemPair(game.id, gameType, legs, { budgetKr, targetMinPayoutKr, trackName }).alternative
     : undefined;
   const systemAlt = builtSystemAlt
     ? { ...builtSystemAlt, hitOutlook: computeSystemHitOutlook(legs, builtSystemAlt) }

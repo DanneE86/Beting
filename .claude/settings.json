@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(cd \"c:\\\\Users\\\\Danie\\\\Desktop\\\\Ny mapp\"; Start-Process -FilePath \"cmd.exe\" -ArgumentList \"/c npx vite dev\" -WorkingDirectory \"c:\\\\Users\\\\Danie\\\\Desktop\\\\Ny mapp\" -WindowStyle Normal; Start-Sleep 5; $result = netstat -ano | Select-String \":8080\"; Write-Host \"Port 8080: $result\")",
+      "Bash(npx vite *)",
+      "Bash(npx tsx *)",
+      "Bash(npx tsx -e ' *)"
+    ]
+  }
+}

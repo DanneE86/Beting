@@ -79,6 +79,7 @@ function Dashboard() {
   const [leagueId, setLeagueId] = useState<LeagueId>("eng.1");
   const [liveLeagueFilter, setLiveLeagueFilter] = useState<string>("all");
   const queryClient = useQueryClient();
+  const tabsRef = useRef<HTMLDivElement>(null);
 
   const matchesQ = useQuery({
     queryKey: ["matches-today"],
@@ -226,7 +227,13 @@ function Dashboard() {
                   return (
                     <button
                       key={l.id}
-                      onClick={() => setLeagueId(l.id)}
+                      onClick={() => {
+                        setLeagueId(l.id as LeagueId);
+                        setLiveLeagueFilter(l.id);
+                        setTimeout(() => {
+                          tabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }, 50);
+                      }}
                       className={`relative px-4 py-2 rounded-md text-sm font-medium border transition ${
                         leagueId === l.id
                           ? "bg-primary text-primary-foreground border-primary"
@@ -247,6 +254,7 @@ function Dashboard() {
           })}
         </div>
 
+        <div ref={tabsRef} className="scroll-mt-24">
         <Tabs defaultValue="live" className="space-y-6">
           <TabsList className="bg-card/60 border border-border flex-wrap h-auto">
             <TabsTrigger value="live" className="gap-2">
@@ -574,6 +582,7 @@ function Dashboard() {
             <TodayTipsTab />
           </TabsContent>
         </Tabs>
+        </div>
 
         <footer className="pt-8 pb-4 text-xs text-muted-foreground text-center">
           Data hämtas från ESPN:s offentliga API. Endast informationssyfte — spela ansvarsfullt.
@@ -635,13 +644,7 @@ function MatchCard({ m, round }: { m: any; round?: number | null }) {
 
   const runPredict = () => setOpen(true);
 
-  // Visa lineup-knapp ungefär 1h innan avspark + under match
-  const minutesToKickoff = m.utcTime
-    ? (new Date(m.utcTime).getTime() - Date.now()) / 60_000
-    : null;
-  const showLineupBtn =
-    !isFinished &&
-    (isLive || (minutesToKickoff != null && minutesToKickoff <= 75));
+  const showLineupBtn = !isFinished;
 
   return (
     <Card className="p-4 hover:border-primary/40 transition flex flex-col">
@@ -779,6 +782,12 @@ function PredictionPanel({
     awayWinPct: number;
     bttsCall?: BttsCall;
     bttsReason?: string;
+    over25Pct?: number | null;
+    over25Call?: "ja" | "nej" | "osäker" | null;
+    marketOdds?: {
+      decimalOdds: { home: number | null; draw: number | null; away: number | null };
+      overUnder?: { line: number; overOdds: number | null; underOdds: number | null } | null;
+    } | null;
   };
 }) {
   const outcome = pickOutcome(p.homeWinPct, p.drawPct, p.awayWinPct);
@@ -789,9 +798,17 @@ function PredictionPanel({
     <div className="mt-3 pt-3 border-t border-border">
       <FootballSimpleTip
         tip={tip}
-        tipPct={tipPct}
+        homeWinPct={p.homeWinPct}
+        drawPct={p.drawPct}
+        awayWinPct={p.awayWinPct}
         bttsCall={p.bttsCall}
         bttsReason={p.bttsReason}
+        over25Pct={p.over25Pct}
+        over25Call={p.over25Call}
+        homeOdds={p.marketOdds?.decimalOdds.home}
+        drawOdds={p.marketOdds?.decimalOdds.draw}
+        awayOdds={p.marketOdds?.decimalOdds.away}
+        overUnder={p.marketOdds?.overUnder}
       />
     </div>
   );
@@ -1633,6 +1650,9 @@ function TodayTipsTab() {
     refetchInterval: 60_000,
   });
   const [selectedLeague, setSelectedLeague] = useState<string>("all");
+  const [showFacit, setShowFacit] = useState(false);
+  const facitRef = useRef<HTMLDivElement>(null);
+
   const bulk = useMutation({
     mutationFn: () => generateTodayPredictions(),
     onSuccess: (r) => {
@@ -1657,6 +1677,12 @@ function TodayTipsTab() {
       qc.invalidateQueries({ queryKey: ["history"] });
       qc.invalidateQueries({ queryKey: ["learning-all"] });
       qc.invalidateQueries({ queryKey: ["league-prompts"] });
+      if (r.resolved > 0) {
+        setShowFacit(true);
+        setTimeout(() => {
+          facitRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 400);
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -1683,6 +1709,11 @@ function TodayTipsTab() {
   const items = q.data?.items ?? [];
   const supabaseAvailable = q.data?.supabaseAvailable !== false;
   const scoreboardCount = q.data?.scoreboardCount ?? 0;
+
+  const resolvedItems = items.filter((r) => r.actual_outcome != null);
+  const facitHits = resolvedItems.filter(
+    (r) => r.predicted_outcome && r.predicted_outcome === r.actual_outcome,
+  ).length;
 
   // Gruppera per liga, sedan per omgång (senaste först).
   type Item = (typeof items)[number];
@@ -1727,10 +1758,13 @@ function TodayTipsTab() {
             variant="secondary"
             onClick={() => resolveM.mutate()}
             disabled={resolveM.isPending}
+            className="gap-1.5"
           >
             {resolveM.isPending ? (
               <Loader2 className="size-4 animate-spin" />
-            ) : null}
+            ) : (
+              <Trophy className="size-4" />
+            )}
             Hämta facit
           </Button>
           <Button
@@ -1768,6 +1802,43 @@ function TodayTipsTab() {
         <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
           Supabase är inte konfigurerad (saknar <code className="text-amber-100">SUPABASE_SERVICE_ROLE_KEY</code>).
           Matcher från ESPN visas, men sparade tips och AI-prognoser kräver nyckeln i .env eller deploy-miljön.
+        </div>
+      )}
+
+      {/* Facit-sektion — visas direkt när rättade matcher finns, framhävs efter "Hämta facit" */}
+      {resolvedItems.length > 0 && (
+        <div ref={facitRef} className={`rounded-lg border scroll-mt-6 transition-all ${
+          showFacit
+            ? "border-primary/60 bg-primary/5 shadow-md"
+            : "border-border/60 bg-card"
+        }`}>
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 flex-wrap gap-2">
+            <div className="flex items-center gap-3">
+              <Trophy className={`size-5 ${showFacit ? "text-primary" : "text-muted-foreground"}`} />
+              <span className="font-display text-lg">Facit</span>
+              <span className={`font-display text-sm px-2 py-0.5 rounded-md ${
+                facitHits / resolvedItems.length >= 0.5
+                  ? "bg-green-500/20 text-green-300"
+                  : "bg-destructive/20 text-destructive"
+              }`}>
+                {facitHits}/{resolvedItems.length} rätt ({Math.round((facitHits / resolvedItems.length) * 100)}%)
+              </span>
+            </div>
+            {showFacit && (
+              <button
+                onClick={() => setShowFacit(false)}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                Stäng
+              </button>
+            )}
+          </div>
+          <PredictionResultsTable
+            rows={resolvedItems as PredictionRow[]}
+            showBtts
+            simple
+            dateFormat="time"
+          />
         </div>
       )}
 

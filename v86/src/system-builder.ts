@@ -10,6 +10,7 @@ export interface BuildOptions {
   budgetKr: number;
   targetMinPayoutKr: number;
   forceSkrellLeg?: number | null;
+  trackName?: string;
 }
 
 type SpikeSelection = {
@@ -567,13 +568,24 @@ function evaluateDdSystem(
   };
 }
 
+// Returnerar multiplikator för leg1-täckningsbonus baserat på banas historiska svaghet.
+// Gävle: leg2-vinnaren saknas 54% → reverse bias mot 3×5. Örebro: högnummer vinner leg1 → mer leg2.
+// Bergsåker: leg1-ranking svag men vi kan inte göra mer – neutral. Övriga: standard.
+function ddTrackLeg1BiasMult(_trackName?: string): number {
+  // Backtest (60 omg): 3x2 ger 35% träff vs 2x3 17% oavsett bana.
+  // Tidigare negativa track-bias för Gävle/Örebro motverkade rätt val — borttagna.
+  return 1;
+}
+
 function scoreDdSystem(metrics: DdCandidateMetrics): number {
+  // Backtest: median-träff 333kr, ROI Rad2 +11% → prioritera träff (hitProbability) tydligare.
+  // payoutPotential sänkt: vi ska inte offra täckning för att jaga storutdelning.
   const budgetBonus = Math.max(0, metrics.budgetUsage - 0.8) * 28;
   return (
-    metrics.hitProbability * 820 +
+    metrics.hitProbability * 920 +
     metrics.averageEdge * 180 +
-    metrics.payoutPotential * 34 +
-    metrics.stability * 260 +
+    metrics.payoutPotential * 22 +
+    metrics.stability * 280 +
     budgetBonus -
     metrics.longshotRisk * 130 -
     metrics.asymmetryPenalty * 14
@@ -597,6 +609,9 @@ type MainPoolSearchState = {
 function flexibleGuardMaxCount(leg: LegAnalysis): number {
   const horses = leg.horses.length;
   const openness = leg.opennessScore ?? 0.5;
+  // Rule7: begränsa till 3 hästar max i beam-search för att beam-states alltid ska
+  // kunna completa alla 8 ben inom budget (3^6×1^2=729 rader ≤ 1400 för budget 700 kr).
+  if (leg.conservativeGardering) return Math.min(horses, 3);
   if (openness >= 0.72) return Math.min(horses, 7);
   if (openness >= 0.58) return Math.min(horses, 6);
   if (openness >= 0.42) return Math.min(horses, 5);
@@ -1140,7 +1155,11 @@ function collectDdSystemCandidates(gameId: string, gameType: PoolGameType, legs:
       const system: BuiltSystem = { gameId, gameType, budgetKr: options.budgetKr, rows, costKr, targetMinPayoutKr: options.targetMinPayoutKr, estimatedPayoutNote: `Mål: utdelning ≥ ${options.targetMinPayoutKr.toLocaleString("sv-SE")} kr vid DD-träff. System: ${rows} rader × ${unitKr} kr = ${costKr.toFixed(2)} kr.`, selections, skrellSpikeLeg: selections.find((s) => s.type === "skrell-spik")?.leg ?? null };
       const metrics = evaluateDdSystem(ddLegs, system, options);
       const rowsPenalty = rows < Math.max(1, maxRows - 1) ? (Math.max(1, maxRows - 1) - rows) * 18 : 0;
-      candidates.push({ system, score: scoreDdSystem(metrics) - rowsPenalty });
+      // Standard: 3×2 ger ~43% träff vs 2×3 ~23% → belöna leg1-täckning.
+      // Gävle/Örebro: leg2 är svagare → negativ multiplikator → prefer 3×5/2×3.
+      // Backtest: 3x2 ger 35% träff vs 2x3 17% → starkare bonus för leg1-täckning.
+      const leg1CoverageBonus = (firstCount - secondCount) * 40 * ddTrackLeg1BiasMult(options.trackName);
+      candidates.push({ system, score: scoreDdSystem(metrics) - rowsPenalty + leg1CoverageBonus });
     }
   }
   return candidates;
@@ -1278,7 +1297,9 @@ function buildDdSystem(
       };
       const metrics = evaluateDdSystem(ddLegs, system, options);
       const rowsPenalty = rows < Math.max(1, maxRows - 1) ? (Math.max(1, maxRows - 1) - rows) * 18 : 0;
-      const score = scoreDdSystem(metrics) - rowsPenalty;
+      // Backtest: 3x2 ger 35% träff vs 2x3 17% → starkare bonus för leg1-täckning.
+      const leg1CoverageBonus = (firstCount - secondCount) * 40 * ddTrackLeg1BiasMult(options.trackName);
+      const score = scoreDdSystem(metrics) - rowsPenalty + leg1CoverageBonus;
 
       if (!best || score > best.score) {
         best = { system, score };
@@ -1457,6 +1478,7 @@ function pickBestIndependentMainPoolSystem(
     buildMainPoolLegOptions(leg, options.forceSkrellLeg != null && options.forceSkrellLeg === leg.leg),
   );
   const beamWidth = 180;
+  const isConservative = legs.some((leg) => leg.conservativeGardering);
   let states: MainPoolSearchState[] = [
     {
       selections: [],
@@ -1473,6 +1495,7 @@ function pickBestIndependentMainPoolSystem(
       for (const option of legOptions[legIndex] ?? []) {
         const nextRows = state.rows * option.rowFactor;
         if (nextRows > maxRows) continue;
+        const nextSpikeCount = state.spikeCount + (option.selection.type !== "gardering" ? 1 : 0);
         const nextSelections = [...state.selections, option.selection];
         nextStates.push({
           selections: nextSelections,
@@ -1481,9 +1504,9 @@ function pickBestIndependentMainPoolSystem(
             state.localScore +
             option.localScore +
             Math.min(10, (nextRows / Math.max(1, maxRows)) * 8) -
-            Math.max(0, state.spikeCount + (option.selection.type !== "gardering" ? 1 : 0) - 4) * 6 -
+            Math.max(0, nextSpikeCount - 4) * 6 -
             Math.max(0, state.skrellSpikeCount + (option.selection.type === "skrell-spik" ? 1 : 0) - 1) * 24,
-          spikeCount: state.spikeCount + (option.selection.type !== "gardering" ? 1 : 0),
+          spikeCount: nextSpikeCount,
           skrellSpikeCount: state.skrellSpikeCount + (option.selection.type === "skrell-spik" ? 1 : 0),
         });
       }
@@ -1604,6 +1627,15 @@ function buildHierarchicalMainPoolSystem(
   legs: LegAnalysis[],
   options: BuildOptions,
 ): BuiltSystem {
+  // Rule7 (conservativeGardering): hoppa över den hierarkiska budgetuppbyggnaden.
+  // Anledning: beam-search startar vid 600 kr (1200 rader) vilket är för tight för
+  // en 2-spik + bred gardering-konfiguration — states töms vid sista benet och
+  // fallback till legacy-system sker, som skapar 3 spikar via nödtrimning.
+  const isConservative = legs.some((leg) => leg.conservativeGardering);
+  if (isConservative) {
+    return pickBestIndependentMainPoolSystem(gameId, gameType, legs, options);
+  }
+
   // Global invariant for main pools: larger budgets must preserve the smaller
   // system's picks and only add coverage from the same ranked horse list.
   const progressiveBudgets = AUTO_MAIN_POOL_BUDGETS_KR.filter((budgetKr) => budgetKr <= options.budgetKr);
@@ -1697,6 +1729,45 @@ function rebalanceCoverage(
   counts[bestShift.trimIndex] -= 1;
 
   return true;
+}
+
+/**
+ * Rule7 post-process: om systemet har fler spikar än maxSpikeCount,
+ * konvertera överskotts-spik-ben till gardering (3 hästar) med lägst bankabilitet.
+ */
+function enforceConservativeSpikeLimit(
+  gameId: string,
+  gameType: PoolGameType,
+  legs: LegAnalysis[],
+  system: BuiltSystem,
+  options: BuildOptions,
+  maxSpikes: number,
+): BuiltSystem {
+  const spikeSelections = system.selections
+    .map((sel, idx) => ({ sel, idx, leg: legs.find((l) => l.leg === sel.leg) }))
+    .filter(({ sel }) => sel.type !== "gardering");
+
+  if (spikeSelections.length <= maxSpikes) return system;
+
+  // Hitta överskotts-spikar sorterade på lägst bankabilitet (minst säkra → konvertera dem)
+  const sorted = [...spikeSelections].sort(
+    (a, b) => (a.leg?.bankabilityScore ?? 0) - (b.leg?.bankabilityScore ?? 0),
+  );
+  const toConvert = sorted.slice(0, spikeSelections.length - maxSpikes);
+
+  const newSelections = system.selections.map((sel) => {
+    const entry = toConvert.find((e) => e.sel === sel);
+    if (!entry || !entry.leg) return sel;
+    const picks = coverageOrder(entry.leg).slice(0, Math.min(entry.leg.horses.length, 3));
+    return {
+      ...sel,
+      picks,
+      type: "gardering" as const,
+      note: `Konverterad spik→gardering (rule7 max ${maxSpikes} spikar)`,
+    };
+  });
+
+  return buildSystemFromSelections(gameId, gameType, legs, options, newSelections);
 }
 
 /** Bygger V85/V86-system inom budget och vagar gardering mot dynamiska spikar. */

@@ -23,5 +23,6 @@ export function defaultBudgetKr(type: PoolGameType): number {
 }
 
 export function defaultMinPayoutKr(type: PoolGameType): number {
-  return type === "dd" ? 1_500 : 30_000;
+  // DD: 1000 kr/träff → ~5 000 kr/mån netto vid 25% träff och 30 spel à 60 kr.
+  return type === "dd" ? 1_000 : 30_000;
 }

@@ -134,7 +134,15 @@ export function scoreHorseChecklist(
   race: AtgRace,
   fieldStarts: AtgStart[],
   travsport?: TravsportHorseProfile | null,
-): { items: ChecklistItem[]; formTrend: HorseDriverScores["formTrend"]; highlights: string[] } {
+): {
+  items: ChecklistItem[];
+  formTrend: HorseDriverScores["formTrend"];
+  highlights: string[];
+  tempoTripScore?: number;
+  tempoTripStyle?: "front" | "closer" | "versatile" | "okänd";
+  gallopRiskScore?: number;
+  gallopRiskLevel?: "låg" | "medel" | "hög";
+} {
   const h = start.horse;
   const stats = h?.statistics;
   const y2025 = stats?.years?.["2025"] as YearStat | undefined;
@@ -209,7 +217,7 @@ export function scoreHorseChecklist(
       ? [...fieldEps].sort((a, b) => a - b)[Math.floor(fieldEps.length / 2)]
       : eps;
   const classScore =
-    eps > 0 && medianEps > 0 ? Math.min(1, Math.max(0.2, eps / medianEps) * 0.5) : 0.5;
+    eps > 0 && medianEps > 0 ? Math.min(1, Math.max(0.2, (eps / medianEps) ** 0.65)) : 0.5;
 
   const trainer = h?.trainer;
   const trWin = pctFromAtg(trainer?.statistics?.years?.["2026"]?.winPercentage);
@@ -223,7 +231,16 @@ export function scoreHorseChecklist(
   const age = h?.age ?? 5;
   const ageScore = age >= 4 && age <= 9 ? 0.7 : 0.5;
 
-  const myTime = recordToSeconds(h?.record?.time);
+  const recentKmTimes = travsport?.recentStarts
+    ?.map((s) => s.kmTimeSeconds)
+    .filter((t): t is number => t != null)
+    .slice(0, 3) ?? [];
+  const usingRecentTimes = recentKmTimes.length >= 2;
+  const recentAvgTime = usingRecentTimes
+    ? recentKmTimes.reduce((a, b) => a + b, 0) / recentKmTimes.length
+    : null;
+  const recordTime = recordToSeconds(h?.record?.time);
+  const myTime = recentAvgTime ?? recordTime;
   const fieldTimes = fieldStarts
     .map((s) => recordToSeconds(s.horse?.record?.time))
     .filter((t): t is number => t != null);
@@ -371,7 +388,9 @@ export function scoreHorseChecklist(
       score: speedScore,
       weight: 1,
       available: myTime != null,
-      note: myTime != null ? `Rek ${myTime.toFixed(1)}s` : "Saknar rekordtid",
+      note: myTime != null
+        ? `${usingRecentTimes ? `Snitt ${recentKmTimes.length} st` : "Rek"} ${myTime.toFixed(1)}s`
+        : "Saknar km-tid",
     },
     {
       id: "rest",
@@ -385,7 +404,28 @@ export function scoreHorseChecklist(
           ? `${travsport.daysSinceLastStart} dagar sedan start (Travsport)`
           : "Proxy via ATG starter 2026",
     },
+    {
+      id: "gallop_risk",
+      category: "häst",
+      label: "Galopp/stabilitetsrisk",
+      score: travsport?.gallopProfile?.stabilityScore ?? 0.6,
+      weight: 1.0,
+      available: (travsport?.gallopProfile?.sampleSize ?? 0) >= 3,
+      note: travsport?.gallopProfile?.note ?? "Saknar galopphistorik",
+    },
   ];
 
-  return { items, formTrend, highlights };
+  if (travsport?.gallopProfile?.riskLevel === "hög") {
+    highlights.push(`Galoppfara hög (${Math.round(travsport.gallopProfile.gallopRate * 100)}%)`);
+  }
+
+  return {
+    items,
+    formTrend,
+    highlights,
+    tempoTripScore: travsport?.tempoTripProfile?.profileScore,
+    tempoTripStyle: travsport?.tempoTripProfile?.style,
+    gallopRiskScore: travsport?.gallopProfile?.stabilityScore,
+    gallopRiskLevel: travsport?.gallopProfile?.riskLevel,
+  };
 }

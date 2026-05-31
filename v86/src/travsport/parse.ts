@@ -2,10 +2,13 @@ import type { TravsportHorseProfile, TravsportStartRow } from "./types";
 
 function parseKmTime(display: string | undefined, sortValue?: number): number | null {
   if (!display || display === "a" || display === "?") return null;
-  const m = display.replace(",", ".").match(/(\d+)[,.]?(\d+)?/);
-  if (!m) return sortValue != null && sortValue < 200 ? sortValue / 10 : null;
-  const sec = Number(m[1]) * 60 + Number(m[2] ?? 0);
-  return sec > 0 ? sec : null;
+  // Swedish format "1.14,5" or "1:14,5" = 1min 14.5s = 74.5s
+  const full = display.match(/^(\d+)[.:](\d{1,2})[,.](\d)$/);
+  if (full) return Number(full[1]) * 60 + Number(full[2]) + Number(full[3]) / 10;
+  // No tenths: "1.14" or "1:14"
+  const noTenths = display.match(/^(\d+)[.:](\d{1,2})$/);
+  if (noTenths) return Number(noTenths[1]) * 60 + Number(noTenths[2]);
+  return sortValue != null && sortValue > 0 && sortValue < 9000 ? sortValue / 10 : null;
 }
 
 function parsePlacement(sortValue?: number, display?: string): number | null {
@@ -98,10 +101,12 @@ export function parseResultRow(raw: Record<string, unknown>): TravsportStartRow 
 }
 
 function formTrendFromStarts(starts: TravsportStartRow[]): TravsportHorseProfile["formTrend"] {
-  const done = starts.filter((s) => s.placement != null && s.placement > 0);
-  if (done.length < 3) return "okänd";
-  const recent = done.slice(0, 3).map((s) => s.placement!);
-  const older = done.slice(3, 6).map((s) => s.placement!);
+  const relevant = starts.filter((s) => !s.withdrawn && !s.resultCode.startsWith("str"));
+  if (relevant.length < 3) return "okänd";
+  const toPlacing = (s: TravsportStartRow): number =>
+    s.galloped || s.disqualified ? 8 : (s.placement ?? 8);
+  const recent = relevant.slice(0, 3).map(toPlacing);
+  const older = relevant.slice(3, 6).map(toPlacing);
   const avg = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
   const r = avg(recent);
   const o = avg(older);
@@ -304,7 +309,7 @@ export function hydrateHorseProfile(profile: TravsportHorseProfile): TravsportHo
   };
 }
 
-/** ATG Solvalla etc. → Travsport banekod (förenklad). */
+/** ATG track name → Travsport track code. */
 export function trackNameToCode(trackName?: string): string | undefined {
   if (!trackName) return undefined;
   const t = trackName.toLowerCase();
@@ -318,5 +323,18 @@ export function trackNameToCode(trackName?: string): string | undefined {
   if (t.includes("hagmyr")) return "H";
   if (t.includes("romme")) return "R";
   if (t.includes("axev")) return "AX";
+  if (t.includes("boden")) return "BO";
+  if (t.includes("gävle") || t.includes("gavle")) return "GÄ";
+  if (t.includes("halmstad")) return "HA";
+  if (t.includes("kalmar")) return "K";
+  if (t.includes("lindes")) return "L";
+  if (t.includes("mantorp")) return "MA";
+  if (t.includes("sundsvall")) return "SUN";
+  if (t.includes("östersund") || t.includes("ostersund")) return "ÖS";
+  if (t.includes("umåker") || t.includes("umak") || t.includes("strömsh")) return "UM";
+  if (t.includes("visby")) return "VI";
+  if (t.includes("tingsryd")) return "TG";
+  if (t.includes("skelleft")) return "SKE";
+  if (t.includes("dannero") || t.includes("nyköping") || t.includes("nykoping")) return "DA";
   return undefined;
 }

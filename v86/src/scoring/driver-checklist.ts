@@ -26,10 +26,21 @@ export function scoreDriverChecklist(
           (y2026?.placement?.["3"] ?? 0)) /
         starts26
       : 0;
+  const place25 =
+    starts25 > 0
+      ? ((y2025?.placement?.["1"] ?? 0) +
+          (y2025?.placement?.["2"] ?? 0) +
+          (y2025?.placement?.["3"] ?? 0)) /
+        starts25
+      : 0;
 
   const formScore = Math.min(1, win26 / 20);
-  const trendScore =
-    win25 > 0 ? Math.min(1, Math.max(0.3, 0.5 + (win26 - win25) / 30)) : 0.5;
+  const trendAvailable = win25 > 0 && win26 > 0 && starts26 >= 10;
+  const trendScore = trendAvailable
+    ? Math.min(1, Math.max(0.3, 0.5 + (win26 - win25) / 30 + (place26 - place25) * 0.3))
+    : starts26 >= 5
+      ? Math.min(0.75, win26 / 18)
+      : 0.5;
 
   const trainer = h?.trainer;
   const sameTeam =
@@ -82,8 +93,12 @@ export function scoreDriverChecklist(
       label: "Formtrend 2025→2026",
       score: trendScore,
       weight: 0.8,
-      available: win25 > 0 && win26 > 0,
-      note: `${win25.toFixed(1)}% → ${win26.toFixed(1)}%`,
+      available: win25 > 0 && win26 > 0 && starts26 >= 5,
+      note: trendAvailable
+        ? `${win25.toFixed(1)}%→${win26.toFixed(1)}% vinst, plats ${(place25 * 100).toFixed(0)}%→${(place26 * 100).toFixed(0)}%`
+        : starts26 >= 5
+          ? `2026: ${win26.toFixed(1)}% vinst (för få starter för trend)`
+          : "För få starter 2026",
     },
     {
       id: "horse_pair",

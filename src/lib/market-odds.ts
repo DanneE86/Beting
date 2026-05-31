@@ -4,6 +4,7 @@ export type MarketOddsSnapshot = {
   providers: number;
   decimalOdds: { home: number | null; draw: number | null; away: number | null };
   marketProbPct: { home: number; draw: number; away: number };
+  overUnder?: { line: number; overOdds: number | null; underOdds: number | null } | null;
 };
 
 export type MarketLineMovement = {
@@ -53,6 +54,19 @@ export function coerceMarketOddsSnapshot(raw: unknown): MarketOddsSnapshot | nul
   const drawPct = numberOrNull(data.marketProbPct?.draw);
   const awayPct = numberOrNull(data.marketProbPct?.away);
   if (homePct == null || drawPct == null || awayPct == null) return null;
+
+  let overUnder: MarketOddsSnapshot["overUnder"] = null;
+  if (data.overUnder && typeof data.overUnder === "object") {
+    const line = numberOrNull(data.overUnder.line);
+    if (line != null) {
+      overUnder = {
+        line,
+        overOdds: numberOrNull(data.overUnder.overOdds),
+        underOdds: numberOrNull(data.overUnder.underOdds),
+      };
+    }
+  }
+
   return {
     providers: Number(data.providers ?? 0) || 0,
     decimalOdds: {
@@ -65,6 +79,7 @@ export function coerceMarketOddsSnapshot(raw: unknown): MarketOddsSnapshot | nul
       draw: round1(drawPct),
       away: round1(awayPct),
     },
+    overUnder,
   };
 }
 
@@ -135,6 +150,23 @@ export async function getMarketOdds(leagueSlug: string, eventId: string): Promis
     const iD = 1 / dDraw;
     const iA = 1 / dAway;
     const sum = iH + iD + iA;
+
+    // Försök extrahera Över/Under 2.5 mål från pickcenter
+    let overUnder: MarketOddsSnapshot["overUnder"] = null;
+    const pcWithOu = pc.find((p) => p?.overUnder != null);
+    if (pcWithOu) {
+      const line = Number(pcWithOu.overUnder);
+      const overMl = Number(pcWithOu?.over?.moneyLine ?? pcWithOu?.overOdds?.moneyLine);
+      const underMl = Number(pcWithOu?.under?.moneyLine ?? pcWithOu?.underOdds?.moneyLine);
+      if (Number.isFinite(line)) {
+        overUnder = {
+          line: round1(line),
+          overOdds: Number.isFinite(overMl) && overMl !== 0 ? round2(toDec(overMl)) : null,
+          underOdds: Number.isFinite(underMl) && underMl !== 0 ? round2(toDec(underMl)) : null,
+        };
+      }
+    }
+
     return {
       providers: pc.length,
       decimalOdds: { home: dHome, draw: dDraw, away: dAway },
@@ -143,6 +175,7 @@ export async function getMarketOdds(leagueSlug: string, eventId: string): Promis
         draw: round1((iD / sum) * 100),
         away: round1((iA / sum) * 100),
       },
+      overUnder,
     };
   } catch {
     return null;

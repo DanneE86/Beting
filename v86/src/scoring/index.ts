@@ -8,6 +8,9 @@ import type { HorseDriverScores } from "./types";
 import { weightedAverage } from "./utils";
 import { travRuleUsesMarketData } from "../rules";
 
+const HORSE_SCORE_WEIGHT = 0.62;
+const DRIVER_SCORE_WEIGHT = 0.38;
+
 export function scoreStartFull(
   start: AtgStart,
   race: AtgRace,
@@ -23,7 +26,7 @@ export function scoreStartFull(
 
   const horseScore = weightedAverage(horse.items);
   const driverScore = driverScoreFromItems(driver.items);
-  const combinedScore = horseScore * 0.62 + driverScore * 0.38;
+  const combinedScore = horseScore * HORSE_SCORE_WEIGHT + driverScore * DRIVER_SCORE_WEIGHT;
 
   const highlights = [...horse.highlights, ...driver.highlights].slice(0, 5);
 
