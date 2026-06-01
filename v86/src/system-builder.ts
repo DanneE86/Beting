@@ -636,30 +636,79 @@ function mainPoolCoverageOrder(leg: LegAnalysis): number[] {
   return coverageOrder(leg);
 }
 
+function favoriteExclusionNote(leg: LegAnalysis, picks: number[]): string {
+  const fav = leg.favorite;
+  if (picks.includes(fav.number)) return "";
+  const favBd = fav.betDistribution;
+  const favWinPct = fav.estimatedWinPct ?? 0;
+  const valueEdge = fav.valueEdgePct ?? 0;
+
+  const reasons: string[] = [];
+  if (favBd > 0 && valueEdge < -3) {
+    reasons.push(`modellen ser ${favWinPct.toFixed(0)}% chans mot ${favBd.toFixed(0)}% strecken`);
+  }
+  if (fav.formTrend === "nedåtgående") reasons.push("sjunkande form");
+  if ((fav.gallopRiskLevel as string | undefined) === "hög") reasons.push("hög galoppfara");
+  if (reasons.length === 0) reasons.push("lägre kapacitetsscore i modellen");
+
+  const favLabel = favBd > 0 ? `${fav.name} (${favBd.toFixed(0)}% strecken)` : fav.name;
+  return `Favoriten ${favLabel} är inte med — ${reasons.slice(0, 2).join(", ")}.`;
+}
+
 function selectionNoteForLeg(
   leg: LegAnalysis,
   picks: number[],
   type: SystemSelection["type"],
 ): string {
   if (type === "skrell-spik") {
-    const horse = leg.horses.find((item) => item.number === picks[0]) ?? leg.skrellSpike ?? leg.favorite;
-    return horse.betDistribution > 0
-      ? `Värdespik från rank: ${horse.name} (${horse.betDistribution.toFixed(1)}%)`
-      : `Värdespik från rank: ${horse.name}`;
+    const horse = leg.horses.find((h) => h.number === picks[0]) ?? leg.skrellSpike ?? leg.favorite;
+    const edge = horse.valueEdgePct ?? 0;
+    const winPct = horse.estimatedWinPct != null ? `${horse.estimatedWinPct.toFixed(0)}%` : null;
+    const bdPart = horse.betDistribution > 0
+      ? ` — ${horse.betDistribution.toFixed(0)}% strecken${winPct ? `, modell ${winPct}` : ""}${edge > 0 ? `, +${edge.toFixed(1)}%-enheter` : ""}`
+      : "";
+    let note = `${horse.name} spelas som skrällhäst${bdPart}.`;
+    const excl = favoriteExclusionNote(leg, picks);
+    if (excl) note += ` ${excl}`;
+    return note;
   }
+
   if (type === "spik") {
-    const horse = leg.horses.find((item) => item.number === picks[0]) ?? topModelHorse(leg);
-    return horse.betDistribution > 0
-      ? `Modellspik från rank: ${horse.name} (${horse.betDistribution.toFixed(1)}%)`
-      : `Modellspik från rank: ${horse.name}`;
+    const horse = leg.horses.find((h) => h.number === picks[0]) ?? topModelHorse(leg);
+    const isFav = horse.number === leg.favorite.number;
+    const winPct = horse.estimatedWinPct != null ? `${horse.estimatedWinPct.toFixed(0)}%` : null;
+    const bankPct = leg.bankabilityScore != null ? `, bankbarhet ${Math.round(leg.bankabilityScore * 100)}%` : "";
+    if (isFav) {
+      const bdPart = horse.betDistribution > 0 ? ` — ${horse.betDistribution.toFixed(0)}% strecken${winPct ? `, modell ${winPct}` : ""}${bankPct}` : bankPct ? ` — ${bankPct.slice(2)}` : "";
+      return `${horse.name} spikas${bdPart}.`;
+    }
+    const bdPart = horse.betDistribution > 0 ? ` — ${horse.betDistribution.toFixed(0)}% strecken${winPct ? `, modell ${winPct}` : ""}` : winPct ? ` — modell ${winPct}` : "";
+    let note = `${horse.name} spikas${bdPart}.`;
+    const excl = favoriteExclusionNote(leg, picks);
+    if (excl) note += ` ${excl}`;
+    return note;
   }
+
+  // gardering
   const topNames = picks
-    .map((pick) => leg.horses.find((horse) => horse.number === pick)?.name)
+    .map((p) => leg.horses.find((h) => h.number === p)?.name)
     .filter(Boolean)
-    .slice(0, 2);
-  return topNames.length > 0
-    ? `Gardering från rank: ${topNames.join(" + ")}${picks.length > 2 ? " och fler" : ""}`
-    : `Gardering från rank med ${picks.length} hästar`;
+    .slice(0, 3)
+    .join(", ");
+  const more = picks.length > 3 ? ` +${picks.length - 3} till` : "";
+  const openNote = leg.recommendation === "bred" ? "Öppet lopp" : "Gardering";
+  let note = `${openNote} med ${picks.length} hästar: ${topNames}${more}.`;
+  const hasSkrellSkydd = leg.skrellSpike != null && picks.includes(leg.skrellSpike.number);
+  if (hasSkrellSkydd && leg.skrellSpike) {
+    note += ` Inkluderar skrällkandidaten ${leg.skrellSpike.name}.`;
+  }
+  const excl = favoriteExclusionNote(leg, picks);
+  if (excl) {
+    note += ` ${excl}`;
+  } else if (picks.includes(leg.favorite.number) && leg.favorite.betDistribution > 0) {
+    note += ` Favoriten ${leg.favorite.name} ingår.`;
+  }
+  return note;
 }
 
 function normalizeSelectionForLeg(
@@ -1346,29 +1395,10 @@ function buildCandidateSystem(
 
     if (forcedSpike?.type === "skrell-spik" || (!isMainPool && skrellLegAnalysis?.leg === leg.leg)) {
       mode = "skrell-spik";
-      fixedNumber =
-        forcedSpike?.number ?? leg.skrellSpike?.number ?? leg.favorite.number;
-      const skrellHorse = leg.horses.find((horse) => horse.number === fixedNumber) ?? leg.skrellSpike ?? leg.favorite;
-      note =
-        skrellHorse.betDistribution > 0
-          ? skrellHorse.betDistribution <= 10
-            ? `Skräll-spik: ${skrellHorse.name} (${skrellHorse.betDistribution.toFixed(1)}% av spelet)`
-            : `Värdespik: ${skrellHorse.name} (${skrellHorse.betDistribution.toFixed(1)}% av spelet)`
-          : `Värdespik: ${skrellHorse.name} (spelprocent saknas ännu)`;
+      fixedNumber = forcedSpike?.number ?? leg.skrellSpike?.number ?? leg.favorite.number;
     } else if (forcedSpike?.type === "spik" || (!isMainPool && leg.recommendation === "spik")) {
       mode = "spik";
-      const favoriteHorse = topModelHorse(leg);
-      fixedNumber = forcedSpike?.number ?? favoriteHorse.number;
-      const spikeHorse = leg.horses.find((horse) => horse.number === fixedNumber) ?? favoriteHorse;
-      note =
-        spikeHorse.betDistribution > 0
-          ? `Modellspik: ${spikeHorse.name} (${spikeHorse.betDistribution.toFixed(1)}%)`
-          : `Modellspik: ${spikeHorse.name} (spelprocent saknas ännu)`;
-    } else if (leg.recommendation === "bred") {
-      mode = "gardering";
-      note = leg.skrellSpike ? "Öppet lopp – bred gardering med skrällskydd" : "Öppet lopp – bred gardering";
-    } else if (leg.skrellSpike) {
-      note = "Gardering med skrällskydd";
+      fixedNumber = forcedSpike?.number ?? topModelHorse(leg).number;
     }
 
     const picks = picksForLeg(
@@ -1376,6 +1406,7 @@ function buildCandidateSystem(
       mode === "skrell-spik" ? "skrell-spik" : mode === "spik" ? "spik" : "gardering",
       fixedNumber,
     );
+    note = selectionNoteForLeg(leg, picks, mode);
     counts.push(picks.length);
     selections.push({ leg: leg.leg, picks, type: mode, note });
   }
