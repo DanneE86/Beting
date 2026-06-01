@@ -232,6 +232,8 @@ export interface ScoredHorse {
   horseChecklist: ChecklistItemView[];
   driverChecklist: ChecklistItemView[];
   isSkrellCandidate: boolean;
+  /** Senaste km-tider från Travsport, t.ex. ["1.14,3", "1.15,1", "1.16,0"] */
+  recentKmTimes?: string[];
 }
 
 export interface LegAnalysis {

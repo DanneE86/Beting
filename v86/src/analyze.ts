@@ -38,6 +38,11 @@ function scoreStart(
   const winPct = (start.horse?.statistics?.life?.winPercentage ?? 0) / 100;
   const eps = (start.horse?.statistics?.life?.earningsPerStart ?? 0) / 100;
   const full = scoreStartFull(start, race, field, gameType, travsportIndex, ruleId);
+  const ts = start.horse?.id ? travsportIndex?.[start.horse.id] : undefined;
+  const recentKmTimes = ts?.recentStarts
+    ?.map((s) => s.kmTime)
+    .filter((t): t is string => t != null)
+    .slice(0, 3) ?? [];
 
   const formScore = full.combinedScore * 100;
   const valueScore = bd > 0 ? full.combinedScore / (bd / 100) : full.combinedScore * 2;
@@ -64,6 +69,7 @@ function scoreStart(
     horseChecklist: mapChecklist(full.horseItems),
     driverChecklist: mapChecklist(full.driverItems),
     isSkrellCandidate,
+    recentKmTimes: recentKmTimes.length > 0 ? recentKmTimes : undefined,
   };
 }
 
