@@ -890,7 +890,7 @@ function evaluateMainPoolSystem(
   };
 }
 
-function scoreMainPoolSystem(metrics: CandidateSystemMetrics): number {
+function scoreMainPoolSystem(metrics: CandidateSystemMetrics, payoutWeight = 58): number {
   const budgetBonus = Math.max(0, metrics.budgetUsage - 0.82) * 42;
   const spikePenalty = metrics.spikeCount >= 6 ? (metrics.spikeCount - 5) * 10 : 0;
   const noSpikePenalty = metrics.spikeCount === 0 ? 4 : 0;
@@ -902,7 +902,7 @@ function scoreMainPoolSystem(metrics: CandidateSystemMetrics): number {
     metrics.probabilityExactlySeven * 140 +
     metrics.probabilityFull * 420 +
     metrics.averageEdge * 150 +
-    metrics.payoutPotential * 58 +
+    metrics.payoutPotential * payoutWeight +
     metrics.coverageBalance * 120 +
     budgetBonus -
     spikePenalty -
@@ -917,6 +917,11 @@ function mainPoolCandidateScore(
   stateLocalScore = 0,
 ): number {
   const metrics = evaluateMainPoolSystem(legs, candidate, options);
+  // Högt mål (>50k) → öka vikten på utdelningspotential och belöna spikar (krävs för stora utdelningar).
+  // Standardmål (≤50k) → oförändrade vikter för att bevara stabilitet i befintliga system.
+  const payoutTargetFactor = Math.min(1.8, Math.max(1.0, options.targetMinPayoutKr / 50_000));
+  const payoutWeight = options.targetMinPayoutKr > 50_000 ? Math.round(58 * payoutTargetFactor) : 58;
+  const spikeTargetBonus = metrics.spikeCount * Math.max(0, payoutTargetFactor - 1.0) * 12;
   const underusePenalty = Math.max(0, 0.86 - metrics.budgetUsage) * 175;
   const spikeOverloadPenalty = Math.max(0, metrics.spikeCount - 5) * 8;
   const riskySinglePickPenalty = candidate.selections.reduce((sum, selection) => {
@@ -940,8 +945,9 @@ function mainPoolCandidateScore(
       candidate.selections.filter((selection) => selection.type === "skrell-spik").length - 1,
     ) * 36;
   return (
-    scoreMainPoolSystem(metrics) +
-    stateLocalScore -
+    scoreMainPoolSystem(metrics, payoutWeight) +
+    stateLocalScore +
+    spikeTargetBonus -
     underusePenalty -
     spikeOverloadPenalty -
     skrellSpikePenalty -
@@ -1035,6 +1041,9 @@ export function recommendMainPoolPlay(
       }
     | null = null;
 
+  const payoutTargetFactor = Math.min(1.8, Math.max(1.0, targetMinPayoutKr / 50_000));
+  const payoutWeight = targetMinPayoutKr > 50_000 ? Math.round(58 * payoutTargetFactor) : 58;
+
   for (const budgetKr of AUTO_MAIN_POOL_BUDGETS_KR) {
     const system = buildSystem(gameId, gameType, legs, {
       budgetKr,
@@ -1047,6 +1056,7 @@ export function recommendMainPoolPlay(
     const underusePenalty = Math.max(0, 0.94 - metrics.budgetUsage) * 120;
     const distancePenalty = Math.abs(budgetKr - preferredBudget) / 100 * 9;
     const costPenalty = (budgetKr - 600) / 100 * 6;
+    const spikeTargetBonus = metrics.spikeCount * Math.max(0, payoutTargetFactor - 1.0) * 12;
     const stabilityBias =
       metrics.probabilitySixPlus * 170 +
       metrics.coverageBalance * 75 -
@@ -1057,7 +1067,8 @@ export function recommendMainPoolPlay(
           Math.max(0, metrics.spikeCount - 2) * 16
         : 0;
     const score =
-      scoreMainPoolSystem(metrics) +
+      scoreMainPoolSystem(metrics, payoutWeight) +
+      spikeTargetBonus +
       stabilityBias -
       underusePenalty -
       distancePenalty -
@@ -1477,7 +1488,10 @@ function pickBestIndependentMainPoolSystem(
   const legOptions = legs.map((leg) =>
     buildMainPoolLegOptions(leg, options.forceSkrellLeg != null && options.forceSkrellLeg === leg.leg),
   );
-  const beamWidth = 180;
+  // Bredare beam i öppna omgångar: fler ben har "bred"-rekommendation och
+  // 5-7 alternativ/ben → 180 trunkerar för tidigt och missar bra kombinationer.
+  const avgOpenness = legs.reduce((s, l) => s + (l.opennessScore ?? 0.5), 0) / Math.max(1, legs.length);
+  const beamWidth = avgOpenness >= 0.65 ? 300 : avgOpenness > 0.5 ? 220 : 180;
   const isConservative = legs.some((leg) => leg.conservativeGardering);
   let states: MainPoolSearchState[] = [
     {

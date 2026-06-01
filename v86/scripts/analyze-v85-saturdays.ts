@@ -4,7 +4,12 @@ import { fetchCalendarDay, fetchGame, listAllowedGamesFromCalendar } from "../sr
 import { buildSnapshotFromGame, sanitizeHistoricalGameForPrematch } from "../src/pipeline";
 import { fileCacheBackend } from "../src/travsport/file-cache";
 import { buildSystemHitSummary, extractTravResult } from "../../src/lib/trav-learning.server";
+import type { TravRuleId } from "../src/types";
 
+// rule2/5/6 delar identisk hästpoängsättning (alla usesMarketData=true, samma checklista).
+// rule7 är genuint annorlunda: conservativeGardering=true, spikTröskel 0.80 vs 0.72.
+// Testa alla fyra för att bekräfta att rule7 faktiskt ger annorlunda system.
+const RULES: TravRuleId[] = ["rule2", "rule5", "rule6", "rule7"];
 const BUDGETS = [600, 700, 800, 900, 1000] as const;
 const TARGETS = [30_000, 40_000, 50_000, 60_000, 75_000, 100_000] as const;
 const MAX_ROUNDS = 25;
@@ -29,6 +34,7 @@ type RoundResult = {
 };
 
 type AggregateResult = {
+  ruleId: TravRuleId;
   budgetKr: number;
   targetMinPayoutKr: number;
   rounds: number;
@@ -119,6 +125,7 @@ async function collectLatestSaturdayRounds(): Promise<SaturdayRound[]> {
 
 async function runAggregate(
   rounds: SaturdayRound[],
+  ruleId: TravRuleId,
   budgetKr: number,
   targetMinPayoutKr: number,
 ): Promise<AggregateResult> {
@@ -129,6 +136,7 @@ async function runAggregate(
     const fullGame = await fetchGame(round.gameId);
     const prematchGame = sanitizeHistoricalGameForPrematch(fullGame);
     const snapshot = await buildSnapshotFromGame(prematchGame, {
+      ruleId,
       budgetKr,
       targetMinPayoutKr,
       includeAndelsspel: false,
@@ -163,6 +171,7 @@ async function runAggregate(
   const fullHitRate = roundResults.filter((row) => row.fullHit).length / Math.max(1, roundResults.length);
   const profitableMonths = [...monthlyNetKr.values()].filter((value) => value > 0).length;
   const result: AggregateResult = {
+    ruleId,
     budgetKr,
     targetMinPayoutKr,
     rounds: roundResults.length,
@@ -199,44 +208,69 @@ async function main() {
   }
 
   const allResults: AggregateResult[] = [];
-  for (const budgetKr of BUDGETS) {
-    for (const targetMinPayoutKr of TARGETS) {
-      const result = await runAggregate(rounds, budgetKr, targetMinPayoutKr);
-      allResults.push(result);
-      console.log(
-        [
-          `budget=${budgetKr}`,
-          `target=${targetMinPayoutKr}`,
-          `roi=${(result.roi * 100).toFixed(1)}%`,
-          `träff=${(result.hitRate * 100).toFixed(1)}%`,
-          `plusmån=${result.profitableMonths}/${result.monthCount}`,
-          `storvinster50=${result.bigHits50k}`,
-        ].join(" | "),
-      );
+  const totalConfigs = RULES.length * BUDGETS.length * TARGETS.length;
+  let configIndex = 0;
+  for (const ruleId of RULES) {
+    for (const budgetKr of BUDGETS) {
+      for (const targetMinPayoutKr of TARGETS) {
+        configIndex++;
+        process.stdout.write(`[${configIndex}/${totalConfigs}] ${ruleId} budget=${budgetKr} target=${targetMinPayoutKr / 1000}k... `);
+        const result = await runAggregate(rounds, ruleId, budgetKr, targetMinPayoutKr);
+        allResults.push(result);
+        console.log(
+          [
+            `roi=${(result.roi * 100).toFixed(1)}%`,
+            `träff=${(result.hitRate * 100).toFixed(1)}%`,
+            `plusmån=${result.profitableMonths}/${result.monthCount}`,
+            `storvinster50=${result.bigHits50k}`,
+          ].join(" | "),
+        );
+      }
     }
   }
 
-  const byBudget = Object.fromEntries(
-    BUDGETS.map((budgetKr) => {
-      const budgetResults = allResults
-        .filter((result) => result.budgetKr === budgetKr)
-        .sort((a, b) => b.score - a.score || b.roi - a.roi || b.netKr - a.netKr);
-      return [budgetKr, { best: budgetResults[0], all: budgetResults }];
+  const sorted = [...allResults].sort((a, b) => b.score - a.score || b.roi - a.roi || b.netKr - a.netKr);
+  const overallBest = sorted[0];
+
+  const byRule = Object.fromEntries(
+    RULES.map((ruleId) => {
+      const ruleResults = sorted.filter((r) => r.ruleId === ruleId);
+      return [ruleId, { best: ruleResults[0], avgSpikes: ruleResults.reduce((s, r) => s + r.averageSpikes, 0) / Math.max(1, ruleResults.length) }];
     }),
   );
 
-  const overallBest = [...allResults].sort((a, b) => b.score - a.score || b.roi - a.roi || b.netKr - a.netKr)[0];
+  const byBudget = Object.fromEntries(
+    BUDGETS.map((budgetKr) => {
+      const budgetResults = sorted.filter((result) => result.budgetKr === budgetKr);
+      return [budgetKr, { best: budgetResults[0] }];
+    }),
+  );
 
   const output = {
     generatedAt: new Date().toISOString(),
     rounds,
+    rules: RULES,
     budgets: BUDGETS,
     targets: TARGETS,
     overallBest,
+    byRule,
     byBudget,
-    leaderboard: [...allResults]
-      .sort((a, b) => b.score - a.score || b.roi - a.roi || b.netKr - a.netKr)
-      .slice(0, 10),
+    leaderboard: sorted.slice(0, 15).map((r) => ({
+      ruleId: r.ruleId,
+      budgetKr: r.budgetKr,
+      targetMinPayoutKr: r.targetMinPayoutKr,
+      roi: Math.round(r.roi * 1000) / 10,
+      hitRate: Math.round(r.hitRate * 1000) / 10,
+      profitableMonths: r.profitableMonths,
+      totalMonths: r.monthCount,
+      netKr: Math.round(r.netKr),
+      medianNetKr: Math.round(r.medianNetKr),
+      avgSpikes: Math.round(r.averageSpikes * 10) / 10,
+      avgRows: Math.round(r.averageRows * 10) / 10,
+      bigHits50k: r.bigHits50k,
+      maxPayoutKr: Math.round(r.maxPayoutKr),
+      score: Math.round(r.score * 10) / 10,
+    })),
   };
 
   const outDir = resolve("v86", "output");
