@@ -229,7 +229,27 @@ export function scoreHorseChecklist(
   const equipScore = equipChanged ? 0.55 : 0.65;
 
   const age = h?.age ?? 5;
-  const ageScore = age >= 4 && age <= 9 ? 0.7 : 0.5;
+  // Travhästar toppar fysiskt vid 4–5 år, sedan gradvis avtagande.
+  const ageScore =
+    age <= 2 ? 0.38 :
+    age === 3 ? 0.58 :
+    age === 4 ? 0.84 :
+    age === 5 ? 0.90 :
+    age === 6 ? 0.77 :
+    age === 7 ? 0.64 :
+    age === 8 ? 0.53 :
+    age === 9 ? 0.45 :
+    Math.max(0.32, 0.45 - (age - 9) * 0.04);
+  const ageLabel =
+    age <= 2 ? "under primålder" :
+    age === 3 ? "ung, första säsongerna" :
+    age === 4 ? "på väg mot toppform" :
+    age === 5 ? "primålder" :
+    age === 6 ? "fortfarande konkurrenskraftig" :
+    age === 7 ? "avtar gradvis" :
+    age === 8 ? "tydlig avmattning" :
+    age === 9 ? "veteran" :
+    "sen karriär, tydlig avmattning";
 
   const recentKmTimes = travsport?.recentStarts
     ?.map((s) => s.kmTimeSeconds)
@@ -258,6 +278,9 @@ export function scoreHorseChecklist(
       : starts2026 >= 12
         ? 0.5
         : 0.6;
+
+  if (age === 4 || age === 5) highlights.push(`Primålder (${age} år) — toppar fysiskt`);
+  else if (age >= 9) highlights.push(`Veteran (${age} år) — avtagande kapacitet`);
 
   if (travsport?.recentStarts?.length) {
     const km = travsport.recentStarts
@@ -375,11 +398,11 @@ export function scoreHorseChecklist(
     {
       id: "pedigree",
       category: "häst",
-      label: "Ålder/kön/härstamning",
+      label: "Ålder & karriärfas",
       score: ageScore,
-      weight: 0.4,
+      weight: 0.65,
       available: !!h?.age,
-      note: `${age} år, ${h?.sex ?? "?"}, fader ${h?.pedigree?.father?.name ?? "?"}`,
+      note: `${age} år — ${ageLabel}. Kön: ${h?.sex ?? "?"}, fader ${h?.pedigree?.father?.name ?? "?"}`,
     },
     {
       id: "speed",
