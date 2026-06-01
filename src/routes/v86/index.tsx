@@ -145,6 +145,29 @@ function formatDateOnly(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? value.slice(0, 10) : date.toLocaleDateString("sv-SE");
 }
 
+function formatKmTime(kmTime: string | null | undefined): string {
+  if (!kmTime) return "—";
+  // Already has minute prefix: "1.14,4a" or "1:14,4"
+  if (/^\d+[.:]\d{2}/.test(kmTime)) {
+    // Normalize to "1:14,4 a" format
+    return kmTime.replace(/^(\d+)[.:](\d{2})[,.](\d)([av]?)$/, (_, m, s, t, method) =>
+      method ? `${m}:${s},${t} ${method}` : `${m}:${s},${t}`,
+    );
+  }
+  // Swedish shorthand without minute: "14,4a" → "1:14,4 a"
+  const short = kmTime.match(/^(\d{2})[,.](\d)([av]?)$/);
+  if (short) return short[3] ? `1:${short[1]},${short[2]} ${short[3]}` : `1:${short[1]},${short[2]}`;
+  return kmTime;
+}
+
+function placementOrdinal(placement: number | null | undefined): string {
+  if (placement == null || placement <= 0) return "?";
+  if (placement === 1) return "1:a";
+  if (placement === 2) return "2:a";
+  if (placement === 3) return "3:e";
+  return `${placement}:e`;
+}
+
 function bestKmTimeFromTravsport(
   starts: Array<{ kmTime?: string | null; kmTimeSeconds?: number | null; date?: string; withdrawn?: boolean }>,
 ) {
@@ -968,7 +991,7 @@ export function TravRuleDashboardPage({
                         {
                           label: "Bästa km-tid",
                           value: bestKm
-                            ? `${bestKm.kmTime ?? `${bestKm.kmTimeSeconds?.toFixed(1)}s`} · ${formatDateOnly(bestKm.date)}`
+                            ? `${formatKmTime(bestKm.kmTime) ?? `${bestKm.kmTimeSeconds?.toFixed(1)}s`} · ${formatDateOnly(bestKm.date)}`
                             : "Saknas i historik",
                           sourceLabel: "Travsport Web API",
                           sourceUrl: "https://api.travsport.se/webapi",
@@ -1119,7 +1142,7 @@ export function TravRuleDashboardPage({
                                           ? "DQ"
                                           : s.withdrawn
                                             ? "–"
-                                            : s.placementDisplay || (s.placement != null ? String(s.placement) : "?");
+                                            : placementOrdinal(s.placement);
                                       const resultColor =
                                         s.galloped || s.disqualified || s.withdrawn
                                           ? "text-[#f0a070]"
@@ -1133,7 +1156,7 @@ export function TravRuleDashboardPage({
                                           <div className="flex items-center justify-between gap-2">
                                             <span className="text-[#7fa892]">{s.displayDate || s.date}</span>
                                             <span className={resultColor}>{resultLabel}</span>
-                                            <span className="font-mono text-[#c8ddd2]">{s.kmTime ?? "—"}</span>
+                                            <span className="font-mono text-[#c8ddd2]">{formatKmTime(s.kmTime)}</span>
                                             <span className="text-[#7fa892]">
                                               {s.distance ? `${s.distance}m` : ""}
                                               {s.startPosition ? ` · sp${s.startPosition}` : ""}
