@@ -609,9 +609,6 @@ type MainPoolSearchState = {
 function flexibleGuardMaxCount(leg: LegAnalysis): number {
   const horses = leg.horses.length;
   const openness = leg.opennessScore ?? 0.5;
-  // Rule7: begränsa till 3 hästar max i beam-search för att beam-states alltid ska
-  // kunna completa alla 8 ben inom budget (3^6×1^2=729 rader ≤ 1400 för budget 700 kr).
-  if (leg.conservativeGardering) return Math.min(horses, 3);
   if (openness >= 0.72) return Math.min(horses, 7);
   if (openness >= 0.58) return Math.min(horses, 6);
   if (openness >= 0.42) return Math.min(horses, 5);
@@ -1492,7 +1489,6 @@ function pickBestIndependentMainPoolSystem(
   // 5-7 alternativ/ben → 180 trunkerar för tidigt och missar bra kombinationer.
   const avgOpenness = legs.reduce((s, l) => s + (l.opennessScore ?? 0.5), 0) / Math.max(1, legs.length);
   const beamWidth = avgOpenness >= 0.65 ? 300 : avgOpenness > 0.5 ? 220 : 180;
-  const isConservative = legs.some((leg) => leg.conservativeGardering);
   let states: MainPoolSearchState[] = [
     {
       selections: [],
@@ -1641,15 +1637,6 @@ function buildHierarchicalMainPoolSystem(
   legs: LegAnalysis[],
   options: BuildOptions,
 ): BuiltSystem {
-  // Rule7 (conservativeGardering): hoppa över den hierarkiska budgetuppbyggnaden.
-  // Anledning: beam-search startar vid 600 kr (1200 rader) vilket är för tight för
-  // en 2-spik + bred gardering-konfiguration — states töms vid sista benet och
-  // fallback till legacy-system sker, som skapar 3 spikar via nödtrimning.
-  const isConservative = legs.some((leg) => leg.conservativeGardering);
-  if (isConservative) {
-    return pickBestIndependentMainPoolSystem(gameId, gameType, legs, options);
-  }
-
   // Global invariant for main pools: larger budgets must preserve the smaller
   // system's picks and only add coverage from the same ranked horse list.
   const progressiveBudgets = AUTO_MAIN_POOL_BUDGETS_KR.filter((budgetKr) => budgetKr <= options.budgetKr);
@@ -1777,7 +1764,7 @@ function enforceConservativeSpikeLimit(
       ...sel,
       picks,
       type: "gardering" as const,
-      note: `Konverterad spik→gardering (rule7 max ${maxSpikes} spikar)`,
+      note: `Konverterad spik→gardering (max ${maxSpikes} spikar)`,
     };
   });
 

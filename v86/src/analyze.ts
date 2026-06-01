@@ -330,11 +330,10 @@ export function analyzeLeg(
     analystComment: buildHorseAnalystComment(horse, index + 1, spread),
   }));
 
-  const isRule7 = normalizedRuleId === "rule7";
   const isDd = gameType === "dd";
-  // DD: lägre tröskel → mer aggressiva spikar på 2-loppsfavoriter; Rule7: högre tröskel för stabilitet
-  const spikThreshold = isDd ? 0.58 : isRule7 ? 0.80 : 0.72;
-  const bredThreshold = isDd ? 0.50 : isRule7 ? 0.65 : 0.6;
+  // DD: lägre tröskel → mer aggressiva spikar på 2-loppsfavoriter
+  const spikThreshold = isDd ? 0.58 : 0.72;
+  const bredThreshold = isDd ? 0.50 : 0.60;
 
   let recommendation: LegAnalysis["recommendation"] = "gardering";
   if (bankabilityScore >= spikThreshold) {
@@ -356,7 +355,6 @@ export function analyzeLeg(
     opennessScore: Math.round(opennessScore * 100) / 100,
     tipNote:
       `${buildTipNote(modelTop)} · Bank ${Math.round(bankabilityScore * 100)}% · Öppenhet ${Math.round(opennessScore * 100)}%`,
-    conservativeGardering: isRule7,
   };
 }
 

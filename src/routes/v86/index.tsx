@@ -51,51 +51,15 @@ export type TravRuleDashboardProps = {
   extraIntro?: ReactNode;
 };
 
-const SELECTABLE_RULES: { id: TravRuleId; label: string; short: string; description: string }[] = [
-  {
-    id: "rule6",
-    label: "Regel 6",
-    short: "Förbättrad plus",
-    description: "Optimerar budget och utdelningsmål mot jämnare månadsresultat med chans på storvinster.",
-  },
-  {
-    id: "rule7",
-    label: "Regel 7",
-    short: "Stabil månadsregel",
-    description: "Bredare gardering (max 3 hästar/ben) och höjd spik-tröskel — fler 6/8-träffar framför storvinstjakt.",
-  },
-];
+const ACTIVE_RULE_ID: TravRuleId = "rule6";
 
 function RuleSelectablePage() {
-  const [selectedRule, setSelectedRule] = useState<TravRuleId>("rule6");
-  const rule = SELECTABLE_RULES.find((r) => r.id === selectedRule) ?? SELECTABLE_RULES[0];
-
   return (
     <TravRuleDashboardPage
-      ruleId={selectedRule}
-      title={`${rule!.label}: ${rule!.short}`}
-      description={rule!.description}
+      ruleId={ACTIVE_RULE_ID}
+      title="Regel 6: Förbättrad plus"
+      description="Optimerar budget och utdelningsmål mot jämnare månadsresultat med chans på storvinster."
       badgeText="Aktiv regel"
-      extraIntro={
-        <div className="flex gap-2">
-          {SELECTABLE_RULES.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => setSelectedRule(r.id)}
-              className={[
-                "flex-1 rounded-lg border px-4 py-2.5 text-left transition-colors",
-                selectedRule === r.id
-                  ? "border-[#4ade80] bg-[#1a3d26] text-[#4ade80]"
-                  : "border-[#1e3d2a] bg-[#111c16] text-[#6b9e7e] hover:border-[#2d5a3a] hover:text-[#9dd4b0]",
-              ].join(" ")}
-            >
-              <div className="text-sm font-semibold">{r.label}</div>
-              <div className="text-xs opacity-75">{r.short}</div>
-            </button>
-          ))}
-        </div>
-      }
     />
   );
 }
@@ -1599,8 +1563,7 @@ export function TravRuleDashboardPage({
                             showEdgeColumn={
                               row.meta?.rule?.id === "rule2" ||
                               row.meta?.rule?.id === "rule5" ||
-                              row.meta?.rule?.id === "rule6" ||
-                              row.meta?.rule?.id === "rule7"
+                              row.meta?.rule?.id === "rule6"
                             }
                           />
                         </div>

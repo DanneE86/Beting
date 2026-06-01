@@ -9,7 +9,7 @@ import type { TravRuleId } from "../src/types";
 // rule2/5/6 delar identisk hästpoängsättning (alla usesMarketData=true, samma checklista).
 // rule7 är genuint annorlunda: conservativeGardering=true, spikTröskel 0.80 vs 0.72.
 // Testa alla fyra för att bekräfta att rule7 faktiskt ger annorlunda system.
-const RULES: TravRuleId[] = ["rule2", "rule5", "rule6", "rule7"];
+const RULES: TravRuleId[] = ["rule2", "rule5", "rule6"];
 const BUDGETS = [600, 700, 800, 900, 1000] as const;
 const TARGETS = [30_000, 40_000, 50_000, 60_000, 75_000, 100_000] as const;
 const MAX_ROUNDS = 25;

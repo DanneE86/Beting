@@ -309,7 +309,6 @@ export async function buildSnapshotFromGame(
   const ruleId = normalizeTravRuleId(input.ruleId);
   const rule = TRAV_RULES[ruleId];
   const isRule6 = ruleId === "rule6";
-  const isRule7 = ruleId === "rule7";
 
   const autoBudget = input.autoBudget === true;
   const floorMinPayoutKr = (() => {
@@ -317,9 +316,8 @@ export async function buildSnapshotFromGame(
       const ddFloor = isRule6 ? 2_500 : defaultMinPayoutKr(gameType);
       return Math.max(1_000, input.targetMinPayoutKr ?? ddFloor);
     }
-    // Rule7: sänkt målutdelning (50k) för fler träffar, rule6 kvar på 90k
-    const mainFloor = isRule7 ? 40_000 : isRule6 ? 60_000 : 30_000;
-    const mainDefault = isRule7 ? 50_000 : isRule6 ? 90_000 : defaultMinPayoutKr(gameType);
+    const mainFloor = isRule6 ? 60_000 : 30_000;
+    const mainDefault = isRule6 ? 90_000 : defaultMinPayoutKr(gameType);
     return Math.max(mainFloor, input.targetMinPayoutKr ?? mainDefault);
   })();
 
@@ -383,17 +381,11 @@ export async function buildSnapshotFromGame(
       ? recommendDdPlay(game.id, gameType, legs, trackAdjustedFloorPayout)
       : recommendMainPoolPlay(game.id, gameType, legs, floorMinPayoutKr)
     : null;
-  // Rule7: standardbudget 700 kr för lite bredare täckning
-  const rule7DefaultBudgetKr = 700;
   const budgetKr =
     recommendedPlay?.budgetKr ??
-    (gameType === "dd"
-      ? input.budgetKr ?? defaultBudgetKr(gameType)
-      : isRule7 && !input.budgetKr
-        ? rule7DefaultBudgetKr
-        : AUTO_MAIN_POOL_BUDGETS_KR.includes((input.budgetKr ?? defaultBudgetKr(gameType)) as (typeof AUTO_MAIN_POOL_BUDGETS_KR)[number])
-          ? (input.budgetKr ?? defaultBudgetKr(gameType))
-          : defaultBudgetKr(gameType));
+    (AUTO_MAIN_POOL_BUDGETS_KR.includes((input.budgetKr ?? defaultBudgetKr(gameType)) as (typeof AUTO_MAIN_POOL_BUDGETS_KR)[number])
+      ? (input.budgetKr ?? defaultBudgetKr(gameType))
+      : defaultBudgetKr(gameType));
   const targetMinPayoutKr = recommendedPlay?.targetMinPayoutKr ?? trackAdjustedFloorPayout;
   const builtSystem =
     recommendedPlay?.system ??

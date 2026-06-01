@@ -13,9 +13,7 @@ import { buildSystemHitSummary, extractTravResult } from "../../src/lib/trav-lea
 import type { TravRuleId } from "../src/types";
 
 // rule2/5/6 delar identisk hästpoängsättning (alla usesMarketData=true, samma checklista).
-// rule7 är genuint annorlunda: conservativeGardering=true, spikTröskel 0.80 vs 0.72,
-// standardbudget 700 kr — inkluderas för att mäta om striktare gardering ger fler träffar.
-const RULES: TravRuleId[] = ["rule2", "rule5", "rule6", "rule7"];
+const RULES: TravRuleId[] = ["rule2", "rule5", "rule6"];
 const BUDGETS = [600, 700, 800] as const;
 const TARGETS = [30_000, 50_000, 75_000] as const;
 const MAX_ROUNDS = 20;

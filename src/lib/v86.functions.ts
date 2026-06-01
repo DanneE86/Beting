@@ -24,7 +24,7 @@ export type { FetchSnapshot, GameOption };
 export { pickDefaultPoolGame };
 export { pickDefaultV85Game, pickDefaultV85Game as pickDefaultV86Game };
 
-export const TRAV_RULE_IDS = ["rule1", "rule2", "rule3", "rule4", "rule5", "rule6", "rule7"] as const;
+export const TRAV_RULE_IDS = ["rule1", "rule2", "rule3", "rule4", "rule5", "rule6"] as const;
 export const TRAV_RULE_IDS_WITH_ALL = [...TRAV_RULE_IDS, "all"] as const;
 
 export const v86ListGames = createServerFn({ method: "GET" })

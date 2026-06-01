@@ -2,7 +2,7 @@ import type { TravsportHorseProfile } from "./travsport/types";
 
 /** V85, V86 och Dagens Dubbel (ATG-nyckel `dd`). */
 export type PoolGameType = "V85" | "V86" | "dd";
-export type TravRuleId = "rule1" | "rule2" | "rule3" | "rule4" | "rule5" | "rule6" | "rule7";
+export type TravRuleId = "rule1" | "rule2" | "rule3" | "rule4" | "rule5" | "rule6";
 
 export type TravCoverageGroupId =
   | "horseCore"
@@ -248,8 +248,6 @@ export interface LegAnalysis {
   bankabilityScore?: number;
   opennessScore?: number;
   tipNote?: string;
-  /** Rule7: bredare gardering (min 4 hästar) och striktare spik-krav */
-  conservativeGardering?: boolean;
 }
 
 export interface SystemSelection {
