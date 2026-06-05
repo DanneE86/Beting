@@ -164,11 +164,11 @@ function WinnerSpotlight({ horse, scores }: { horse: ScoredHorse; scores: Return
         {horse.estimatedWinPct != null && (
           <div>
             <div className="text-[9px] text-[#5a7a68] mb-0.5">Modell-vinstchans</div>
-            <span className="text-sm font-bold" style={{ color: scoreColor(horse.estimatedWinPct) }}>
-              {Math.round(horse.estimatedWinPct * 100)}%
+            <span className="text-sm font-bold" style={{ color: scoreColor(horse.estimatedWinPct / 100) }}>
+              {horse.estimatedWinPct.toFixed(1)}%
             </span>
             <span className="text-[10px] text-[#5a7a68] ml-1">
-              (marknad {Math.round(horse.winPct * 100)}%)
+              (streck {horse.betDistribution.toFixed(1)}%)
             </span>
           </div>
         )}

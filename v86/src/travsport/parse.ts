@@ -10,13 +10,28 @@ import type {
 
 function parseKmTime(display: string | undefined, sortValue?: number): number | null {
   if (!display || display === "a" || display === "?") return null;
-  // Swedish format "1.14,5" or "1:14,5" = 1min 14.5s = 74.5s
-  const full = display.match(/^(\d+)[.:](\d{1,2})[,.](\d)$/);
+  // Strip trailing start-method suffix (a=auto, v=volt, k=kusk etc.)
+  const clean = display.replace(/[avkx]+$/i, "").trim();
+  // Full Swedish format "1.14,5" or "1:14,5" = 1min 14.5s = 74.5s
+  const full = clean.match(/^(\d+)[.:](\d{1,2})[,.](\d)$/);
   if (full) return Number(full[1]) * 60 + Number(full[2]) + Number(full[3]) / 10;
   // No tenths: "1.14" or "1:14"
-  const noTenths = display.match(/^(\d+)[.:](\d{1,2})$/);
+  const noTenths = clean.match(/^(\d+)[.:](\d{1,2})$/);
   if (noTenths) return Number(noTenths[1]) * 60 + Number(noTenths[2]);
-  return sortValue != null && sortValue > 0 && sortValue < 9000 ? sortValue / 10 : null;
+  // Short format without minutes prefix: "14,7" or "14.7" → assumed 1:14.7 = 74.7s
+  // Valid for trotting km-times which are always in the 1:10–1:35 range
+  const short = clean.match(/^(\d{2})[,.](\d)$/);
+  if (short) return 60 + Number(short[1]) + Number(short[2]) / 10;
+  // SortValue fallback: Travsport encodes as MSST (1147 = 1min 14.7s = 74.7s)
+  if (sortValue != null && sortValue > 0 && sortValue < 9000) {
+    if (sortValue >= 1000) {
+      const minutes = Math.floor(sortValue / 1000);
+      const rest = sortValue % 1000;
+      return minutes * 60 + rest / 10;
+    }
+    return sortValue / 10;
+  }
+  return null;
 }
 
 function parsePlacement(sortValue?: number, display?: string): number | null {
@@ -434,28 +449,41 @@ export function hydrateHorseProfile(profile: TravsportHorseProfile): TravsportHo
 
   const completed = starts.filter((s) => s.placement != null && s.placement > 0 && s.placement < 90);
 
+  function rehydrateRow(row: TravsportStartRow): TravsportStartRow {
+    const resultCode = row.resultCode ?? normalizeResultCode(row.placementDisplay);
+    const startPosition = row.startPosition ?? null;
+    const placement = row.placement ?? null;
+    const withdrawn = Boolean(row.withdrawn);
+    // Re-parse km-time: cached sortValue-based times may be wrong (e.g. 115s instead of 74.7s)
+    const reparsedKmTime = row.kmTime ? parseKmTime(row.kmTime, undefined) : null;
+    const kmTimeSeconds = reparsedKmTime ?? row.kmTimeSeconds;
+    return {
+      ...row,
+      kmTimeSeconds,
+      resultCode,
+      galloped: row.galloped ?? rowGalloped(resultCode),
+      disqualified: row.disqualified ?? rowDisqualified(resultCode),
+      tripComment: row.tripComment ?? buildTripComment(placement, startPosition, resultCode, withdrawn),
+    };
+  }
+
   return {
     ...profile,
     starts,
-    recentStarts: (profile.recentStarts ?? starts.slice(0, 6)).map((row) => {
-      const resultCode = row.resultCode ?? normalizeResultCode(row.placementDisplay);
-      const startPosition = row.startPosition ?? null;
-      const placement = row.placement ?? null;
-      const withdrawn = Boolean(row.withdrawn);
-      return {
-        ...row,
-        resultCode,
-        galloped: row.galloped ?? rowGalloped(resultCode),
-        disqualified: row.disqualified ?? rowDisqualified(resultCode),
-        tripComment: row.tripComment ?? buildTripComment(placement, startPosition, resultCode, withdrawn),
-      };
-    }),
+    recentStarts: (profile.recentStarts ?? starts.slice(0, 6)).map(rehydrateRow),
     tempoTripProfile: profile.tempoTripProfile ?? buildTempoTripProfile(starts),
     gallopProfile: profile.gallopProfile ?? buildGallopProfile(starts),
     surfaceHistory: profile.surfaceHistory ?? buildSurfaceHistory(completed),
     trainerTrackStats: profile.trainerTrackStats ?? buildTrainerTrackStats(completed),
     // driverMethodSplit kräver känd driverId — räknas om vid nästa live-fetch
   };
+}
+
+/** Korrigerar kmTimeSeconds i en startrad om display-strängen kan ge bättre precision. */
+export function reparsedKmTimeSeconds(row: TravsportStartRow): number | null {
+  if (!row.kmTime) return row.kmTimeSeconds;
+  const reparsed = parseKmTime(row.kmTime, undefined);
+  return reparsed ?? row.kmTimeSeconds;
 }
 
 /** ATG track name → Travsport track code. */
