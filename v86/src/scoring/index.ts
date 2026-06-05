@@ -19,7 +19,7 @@ export function scoreStartFull(
 ): HorseDriverScores {
   const bd = betDistribution(start, gameType);
   const ts = start.horse?.id ? travsportIndex?.[start.horse.id] : undefined;
-  const horse = scoreHorseChecklist(start, race, fieldStarts, ts);
+  const horse = scoreHorseChecklist(start, race, fieldStarts, ts, travsportIndex);
   const driver = scoreDriverChecklist(start, race, bd, ts);
 
   const horseScore = weightedAverage(horse.items);

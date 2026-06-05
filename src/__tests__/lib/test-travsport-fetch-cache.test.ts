@@ -70,6 +70,8 @@ function profile(horseId: number, fetchedAt: string): TravsportHorseProfile {
       riskLevel: "medel",
       note: "Ingen galopphistorik ännu",
     },
+    surfaceHistory: [],
+    trainerTrackStats: [],
   };
 }
 

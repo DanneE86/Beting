@@ -73,6 +73,8 @@ function buildProfile(startRows: TravsportHorseProfile["starts"]): TravsportHors
       riskLevel: "låg",
       note: "0/3 starter med galopp/disk",
     },
+    surfaceHistory: [],
+    trainerTrackStats: [],
   };
 }
 

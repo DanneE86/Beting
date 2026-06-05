@@ -1,6 +1,6 @@
 import type { AtgRace, AtgStart } from "../types";
 import { normalizeTrackCondition, trackNameToCode } from "../travsport/parse";
-import type { TravsportHorseProfile } from "../travsport/types";
+import type { TravsportHorseProfile, TravsportIndex } from "../travsport/types";
 import type { ChecklistItem, HorseDriverScores } from "./types";
 import { distanceBand, distanceClass, distanceCorrectionSec, pctFromAtg, recordToSeconds, representativeMeters } from "./utils";
 
@@ -161,6 +161,7 @@ export function scoreHorseChecklist(
   race: AtgRace,
   fieldStarts: AtgStart[],
   travsport?: TravsportHorseProfile | null,
+  travsportIndex?: TravsportIndex,
 ): {
   items: ChecklistItem[];
   formTrend: HorseDriverScores["formTrend"];
@@ -350,12 +351,42 @@ export function scoreHorseChecklist(
 
   const myTime = recentAvgTime ?? recordTime;
 
-  // Fälttider: ATG-rekord distanskorrigerade per häst
+  // Fälttider: Travsport-snitt om ≥2 starter finns, annars ATG-rekord
+  // Säkerställer äpplen-mot-äpplen: egna tider från Travsport jämförs mot fältets Travsport-tider
+  let fieldTravsportCount = 0;
   const fieldTimes = fieldStarts
     .map((s) => {
+      const horseId = s.horse?.id;
+      const fieldEffectiveDist = s.distance ?? raceDist;
+      // Försök hämta Travsport-tider för fälthästen
+      if (horseId && travsportIndex) {
+        const fTs = travsportIndex[horseId];
+        if (fTs) {
+          const fStarts = fTs.recentStarts?.filter(
+            (r) => r.kmTimeSeconds != null && !r.galloped && !r.disqualified,
+          ) ?? [];
+          const fSimilar = fStarts.filter(
+            (r) => r.distance != null && Math.abs(r.distance - (fieldEffectiveDist ?? 0)) <= 500,
+          );
+          const fBasis = fSimilar.length >= 2 ? fSimilar : fStarts.length >= 2 ? fStarts : [];
+          if (fBasis.length >= 2) {
+            const fCorrected = fBasis
+              .map((r) => {
+                const raw = r.kmTimeSeconds!;
+                if (!r.distance || !fieldEffectiveDist) return raw;
+                return raw + distanceCorrectionSec(r.distance, fieldEffectiveDist);
+              })
+              .slice(0, 5);
+            const fEwma = fCorrected.reduce((ewma, t) => 0.45 * t + 0.55 * ewma);
+            fieldTravsportCount++;
+            return fEwma;
+          }
+        }
+      }
+      // Fallback: ATG-rekord med bandbaserad distanskorrektion
       const raw = recordToSeconds(s.horse?.record?.time);
       if (raw == null || !raceDist) return raw;
-      const srcBand = s.horse?.record?.distance ?? life?.records?.[0]?.distance;
+      const srcBand = s.horse?.record?.distance;
       const srcMeters = representativeMeters(srcBand);
       return raw + distanceCorrectionSec(srcMeters, raceDist);
     })
@@ -370,6 +401,9 @@ export function scoreHorseChecklist(
     myTime != null && medianTime != null
       ? Math.min(1, Math.max(0.2, 0.5 + (medianTime - myTime) / 6))
       : 0.5;
+  const fieldTimeSource = fieldTravsportCount >= Math.ceil(fieldTimes.length / 2)
+    ? "Travsport-mix"
+    : "ATG-rekord";
 
   const starts2026 = y2026?.starts ?? 0;
   const restScore = travsport?.daysSinceLastStart != null
@@ -620,7 +654,9 @@ export function scoreHorseChecklist(
         const src = usingRecentTimes
           ? `Snitt ${correctedKmTimes.length} st${useDistFiltered ? ` (dist-filtrerat)` : " (dist-korr)"}`
           : "Rek (dist-korr)";
-        const medStr = medianTime != null ? ` vs fält ${medianTime.toFixed(1)}s` : "";
+        const medStr = medianTime != null
+          ? ` vs fält ${medianTime.toFixed(1)}s (${fieldTimeSource})`
+          : "";
         return `${src}: ${myTime.toFixed(1)}s${medStr}`;
       })(),
     },
