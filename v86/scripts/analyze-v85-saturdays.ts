@@ -11,7 +11,6 @@ import type { TravRuleId } from "../src/types";
 // Testa alla fyra för att bekräfta att rule7 faktiskt ger annorlunda system.
 const RULES: TravRuleId[] = ["rule2", "rule5", "rule6"];
 const BUDGETS = [600, 700, 800, 900, 1000] as const;
-const TARGETS = [30_000, 40_000, 50_000, 60_000, 75_000, 100_000] as const;
 const MAX_ROUNDS = 25;
 const LOOKBACK_DAYS = 420;
 
@@ -36,7 +35,6 @@ type RoundResult = {
 type AggregateResult = {
   ruleId: TravRuleId;
   budgetKr: number;
-  targetMinPayoutKr: number;
   rounds: number;
   turnoverKr: number;
   payoutKr: number;
@@ -127,7 +125,6 @@ async function runAggregate(
   rounds: SaturdayRound[],
   ruleId: TravRuleId,
   budgetKr: number,
-  targetMinPayoutKr: number,
 ): Promise<AggregateResult> {
   const monthlyNetKr = new Map<string, number>();
   const roundResults: RoundResult[] = [];
@@ -138,7 +135,6 @@ async function runAggregate(
     const snapshot = await buildSnapshotFromGame(prematchGame, {
       ruleId,
       budgetKr,
-      targetMinPayoutKr,
       includeAndelsspel: false,
       includeTravsport: true,
       travsportDbCache: fileCacheBackend,
@@ -173,7 +169,6 @@ async function runAggregate(
   const result: AggregateResult = {
     ruleId,
     budgetKr,
-    targetMinPayoutKr,
     rounds: roundResults.length,
     turnoverKr,
     payoutKr,
@@ -208,24 +203,22 @@ async function main() {
   }
 
   const allResults: AggregateResult[] = [];
-  const totalConfigs = RULES.length * BUDGETS.length * TARGETS.length;
+  const totalConfigs = RULES.length * BUDGETS.length;
   let configIndex = 0;
   for (const ruleId of RULES) {
     for (const budgetKr of BUDGETS) {
-      for (const targetMinPayoutKr of TARGETS) {
-        configIndex++;
-        process.stdout.write(`[${configIndex}/${totalConfigs}] ${ruleId} budget=${budgetKr} target=${targetMinPayoutKr / 1000}k... `);
-        const result = await runAggregate(rounds, ruleId, budgetKr, targetMinPayoutKr);
-        allResults.push(result);
-        console.log(
-          [
-            `roi=${(result.roi * 100).toFixed(1)}%`,
-            `träff=${(result.hitRate * 100).toFixed(1)}%`,
-            `plusmån=${result.profitableMonths}/${result.monthCount}`,
-            `storvinster50=${result.bigHits50k}`,
-          ].join(" | "),
-        );
-      }
+      configIndex++;
+      process.stdout.write(`[${configIndex}/${totalConfigs}] ${ruleId} budget=${budgetKr}... `);
+      const result = await runAggregate(rounds, ruleId, budgetKr);
+      allResults.push(result);
+      console.log(
+        [
+          `roi=${(result.roi * 100).toFixed(1)}%`,
+          `träff=${(result.hitRate * 100).toFixed(1)}%`,
+          `plusmån=${result.profitableMonths}/${result.monthCount}`,
+          `storvinster50=${result.bigHits50k}`,
+        ].join(" | "),
+      );
     }
   }
 
@@ -251,14 +244,12 @@ async function main() {
     rounds,
     rules: RULES,
     budgets: BUDGETS,
-    targets: TARGETS,
     overallBest,
     byRule,
     byBudget,
     leaderboard: sorted.slice(0, 15).map((r) => ({
       ruleId: r.ruleId,
       budgetKr: r.budgetKr,
-      targetMinPayoutKr: r.targetMinPayoutKr,
       roi: Math.round(r.roi * 1000) / 10,
       hitRate: Math.round(r.hitRate * 1000) / 10,
       profitableMonths: r.profitableMonths,

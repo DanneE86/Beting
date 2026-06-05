@@ -1,6 +1,6 @@
 /**
  * Backtest: senaste 20 lördags-V85 omgångar
- * Testar rule2 / rule5 / rule6 × budget 600/700/800 × target 30k/50k/75k
+ * Testar rule2 / rule5 / rule6 × budget 600/700/800
  * Primärt mål: maximal andel månader med plus (profitableMonthShare)
  * Kör: npx tsx v86/scripts/backtest-v85-monthly-model.ts
  */
@@ -15,7 +15,6 @@ import type { TravRuleId } from "../src/types";
 // rule2/5/6 delar identisk hästpoängsättning (alla usesMarketData=true, samma checklista).
 const RULES: TravRuleId[] = ["rule2", "rule5", "rule6"];
 const BUDGETS = [600, 700, 800] as const;
-const TARGETS = [30_000, 50_000, 75_000] as const;
 const MAX_ROUNDS = 20;
 const LOOKBACK_DAYS = 500;
 
@@ -26,7 +25,6 @@ type RoundResult = {
   gameDate: string;
   ruleId: string;
   budgetKr: number;
-  targetMinPayoutKr: number;
   costKr: number;
   payoutKr: number;
   netKr: number;
@@ -40,7 +38,6 @@ type RoundResult = {
 type Config = {
   ruleId: string;
   budgetKr: number;
-  targetMinPayoutKr: number;
 };
 
 type AggResult = {
@@ -139,7 +136,6 @@ async function runConfig(rounds: Round[], config: Config): Promise<AggResult> {
     const snapshot = await buildSnapshotFromGame(prematch, {
       ruleId: config.ruleId as TravRuleId,
       budgetKr: config.budgetKr,
-      targetMinPayoutKr: config.targetMinPayoutKr,
       includeAndelsspel: false,
       includeTravsport: true,
       travsportDbCache: fileCacheBackend,
@@ -157,7 +153,6 @@ async function runConfig(rounds: Round[], config: Config): Promise<AggResult> {
       gameDate: round.gameDate,
       ruleId: config.ruleId,
       budgetKr: config.budgetKr,
-      targetMinPayoutKr: config.targetMinPayoutKr,
       costKr: snapshot.system.costKr,
       payoutKr,
       netKr,
@@ -206,7 +201,7 @@ async function runConfig(rounds: Round[], config: Config): Promise<AggResult> {
 function printResult(r: AggResult, rank: number) {
   const cfg = r.config;
   console.log(
-    `#${rank} ${cfg.ruleId} budget=${cfg.budgetKr} target=${(cfg.targetMinPayoutKr / 1000).toFixed(0)}k` +
+    `#${rank} ${cfg.ruleId} budget=${cfg.budgetKr}` +
     ` | ROI=${(r.roi * 100).toFixed(1)}%` +
     ` | träff=${(r.hitRate * 100).toFixed(0)}%` +
     ` | 6+=${(r.sixPlusRate * 100).toFixed(0)}%` +
@@ -231,9 +226,7 @@ async function main() {
   const configs: Config[] = [];
   for (const ruleId of RULES) {
     for (const budgetKr of BUDGETS) {
-      for (const targetMinPayoutKr of TARGETS) {
-        configs.push({ ruleId, budgetKr, targetMinPayoutKr });
-      }
+      configs.push({ ruleId, budgetKr });
     }
   }
 
@@ -242,7 +235,7 @@ async function main() {
 
   for (let i = 0; i < configs.length; i++) {
     const cfg = configs[i];
-    process.stdout.write(`[${i + 1}/${configs.length}] ${cfg.ruleId} ${cfg.budgetKr}kr t=${cfg.targetMinPayoutKr / 1000}k... `);
+    process.stdout.write(`[${i + 1}/${configs.length}] ${cfg.ruleId} ${cfg.budgetKr}kr... `);
     const result = await runConfig(rounds, cfg);
     results.push(result);
     console.log(`ROI=${(result.roi * 100).toFixed(1)}% månadsplus=${result.profitableMonths}/${result.totalMonths}`);
@@ -263,7 +256,7 @@ async function main() {
   // Månadsdetaljer för top-3
   console.log("\n=== MÅNADSDETALJER TOP 3 ===");
   for (const r of ranked.slice(0, 3)) {
-    console.log(`\n${r.config.ruleId} budget=${r.config.budgetKr} target=${r.config.targetMinPayoutKr / 1000}k:`);
+    console.log(`\n${r.config.ruleId} budget=${r.config.budgetKr}:`);
     for (const [month, net] of Object.entries(r.monthlyNet)) {
       const plus = net >= 0 ? "+" : "";
       console.log(`  ${month}: ${plus}${Math.round(net).toLocaleString("sv-SE")} kr`);

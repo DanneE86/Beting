@@ -58,7 +58,6 @@ describe("system-probability", () => {
       budgetKr: 60,
       rows: 1,
       costKr: 10,
-      targetMinPayoutKr: 1500,
       estimatedPayoutNote: "",
       skrellSpikeLeg: null,
       selections: [

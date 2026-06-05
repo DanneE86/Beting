@@ -3,7 +3,7 @@ import { buildSnapshot, todayIso } from "../src/pipeline";
 import { formatDdSystemLine } from "../src/system-builder";
 import type { BuiltSystem } from "../src/types";
 import { resolvePrimaryDd } from "../src/v85-schedule";
-import { defaultBudgetKr, defaultMinPayoutKr } from "../src/game-types";
+import { defaultBudgetKr } from "../src/game-types";
 import { printReport } from "../src/run";
 
 function printDdLine(label: string, system: BuiltSystem) {
@@ -27,7 +27,6 @@ async function main() {
     date,
     gameId: dd.gameId,
     budgetKr: defaultBudgetKr("dd"),
-    targetMinPayoutKr: defaultMinPayoutKr("dd"),
     travsportDbCache: hybridTravsportCache,
   });
 

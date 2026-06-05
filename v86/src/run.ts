@@ -82,7 +82,6 @@ export async function runV86Pipeline(argv = process.argv.slice(2)) {
     date: args.date ?? todayIso(),
     gameId: args.game ?? argv.find((a) => a.startsWith("V86_") || a.startsWith("V85_") || a.startsWith("dd_")),
     budgetKr: Number(args.budget ?? defaultBudgetKr(inferredGameType)),
-    targetMinPayoutKr: Number(args.minPayout ?? 30_000),
     travsportDbCache: hybridTravsportCache,
   });
 

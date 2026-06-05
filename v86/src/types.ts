@@ -281,7 +281,6 @@ export interface BuiltSystem {
   budgetKr: number;
   rows: number;
   costKr: number;
-  targetMinPayoutKr: number;
   estimatedPayoutNote: string;
   selections: SystemSelection[];
   skrellSpikeLeg: number | null;
@@ -391,7 +390,6 @@ export interface FetchSnapshot {
     recommendedPlay?: {
       mode: "auto-budget";
       budgetKr: number;
-      targetMinPayoutKr: number;
       opennessScore: number;
       reason: string;
     };

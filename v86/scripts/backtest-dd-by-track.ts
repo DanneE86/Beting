@@ -62,7 +62,6 @@ async function main() {
     const prematchGame = sanitizeHistoricalGameForPrematch(fullGame);
     const snapshot = await buildSnapshotFromGame(prematchGame, {
       budgetKr: BUDGET_KR,
-      targetMinPayoutKr: 1500,
       includeAndelsspel: false,
       includeTravsport: true,
       travsportDbCache: fileCacheBackend,

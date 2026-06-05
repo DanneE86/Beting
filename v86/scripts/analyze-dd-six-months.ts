@@ -6,7 +6,6 @@ import { fileCacheBackend } from "../src/travsport/file-cache";
 import { buildSystemHitSummary, extractTravResult } from "../../src/lib/trav-learning.server";
 
 const FIXED_BUDGETS = [50, 60] as const;
-const TARGETS = [1_500, 2_000, 2_500, 3_000] as const;
 const LOOKBACK_DAYS = 190;
 
 type Strategy =
@@ -15,14 +14,12 @@ type Strategy =
       label: string;
       mode: "fixed";
       budgetKr: (typeof FIXED_BUDGETS)[number];
-      targetMinPayoutKr: (typeof TARGETS)[number];
     }
   | {
       key: string;
       label: string;
       mode: "auto";
       budgetKr: "auto";
-      targetMinPayoutKr: (typeof TARGETS)[number];
     };
 
 type RoundRef = {
@@ -34,7 +31,6 @@ type RoundResult = {
   gameId: string;
   gameDate: string;
   budgetKr: number;
-  targetMinPayoutKr: number;
   rows: number;
   costKr: number;
   payoutKr: number;
@@ -49,7 +45,6 @@ type AggregateResult = {
   label: string;
   mode: "fixed" | "auto";
   budgetKr: number | "auto";
-  targetMinPayoutKr: number;
   rounds: number;
   turnoverKr: number;
   payoutKr: number;
@@ -84,22 +79,18 @@ function median(values: number[]): number {
 }
 
 function buildStrategies(): Strategy[] {
-  const fixed = FIXED_BUDGETS.flatMap((budgetKr) =>
-    TARGETS.map((targetMinPayoutKr) => ({
-      key: `fixed-${budgetKr}-${targetMinPayoutKr}`,
-      label: `Fast ${budgetKr} kr / mål ${targetMinPayoutKr}`,
-      mode: "fixed" as const,
-      budgetKr,
-      targetMinPayoutKr,
-    })),
-  );
-  const auto = TARGETS.map((targetMinPayoutKr) => ({
-    key: `auto-${targetMinPayoutKr}`,
-    label: `Auto 50-60 kr / mål ${targetMinPayoutKr}`,
+  const fixed = FIXED_BUDGETS.map((budgetKr) => ({
+    key: `fixed-${budgetKr}`,
+    label: `Fast ${budgetKr} kr`,
+    mode: "fixed" as const,
+    budgetKr,
+  }));
+  const auto: Strategy[] = [{
+    key: "auto",
+    label: "Auto 30-40 kr",
     mode: "auto" as const,
     budgetKr: "auto" as const,
-    targetMinPayoutKr,
-  }));
+  }];
   return [...fixed, ...auto];
 }
 
@@ -173,7 +164,6 @@ async function runAggregate(rounds: RoundRef[], strategy: Strategy): Promise<Agg
     const prematchGame = sanitizeHistoricalGameForPrematch(fullGame);
     const snapshot = await buildSnapshotFromGame(prematchGame, {
       budgetKr: strategy.mode === "fixed" ? strategy.budgetKr : undefined,
-      targetMinPayoutKr: strategy.targetMinPayoutKr,
       autoBudget: strategy.mode === "auto",
       includeAndelsspel: false,
       includeTravsport: true,
@@ -195,7 +185,6 @@ async function runAggregate(rounds: RoundRef[], strategy: Strategy): Promise<Agg
       gameId: round.gameId,
       gameDate: round.gameDate,
       budgetKr: snapshot.system.budgetKr,
-      targetMinPayoutKr: snapshot.system.targetMinPayoutKr,
       rows: snapshot.system.rows,
       costKr: snapshot.system.costKr,
       payoutKr,
@@ -215,7 +204,6 @@ async function runAggregate(rounds: RoundRef[], strategy: Strategy): Promise<Agg
     label: strategy.label,
     mode: strategy.mode,
     budgetKr: strategy.budgetKr,
-    targetMinPayoutKr: strategy.targetMinPayoutKr,
     rounds: roundResults.length,
     turnoverKr,
     payoutKr,

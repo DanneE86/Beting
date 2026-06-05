@@ -940,7 +940,6 @@ type BacktestRow = {
   totalLegs: number;
   payoutAmountKr: number | null;
   budgetKr: number;
-  targetMinPayoutKr: number;
   recommendedBudgetKr?: number | null;
   recommendedReason?: string | null;
   summary: string;
@@ -953,7 +952,6 @@ async function loadResolvedBacktestPredictions(
   fromDate: string,
   toDate: string,
   budgetKr?: number,
-  targetMinPayoutKr?: number,
   autoBudget?: boolean,
 ): Promise<Map<string, BacktestRow>> {
   const { data } = await supabaseAdmin
@@ -987,12 +985,11 @@ async function loadResolvedBacktestPredictions(
     }
 
     const hit = (row.system_hit_summary ?? {}) as TravSystemHitSummary;
-    const system = (row.system_json ?? {}) as { budgetKr?: number; targetMinPayoutKr?: number };
+    const system = (row.system_json ?? {}) as { budgetKr?: number };
     const postmortem = (row.postmortem_json ?? {}) as TravPostmortem;
     const recommendedPlay = (meta.recommendedPlay ?? null) as { budgetKr?: number; reason?: string } | null;
 
     if (budgetKr != null && system.budgetKr != null && system.budgetKr !== budgetKr) continue;
-    if (targetMinPayoutKr != null && system.targetMinPayoutKr != null && system.targetMinPayoutKr !== targetMinPayoutKr) continue;
 
     // When autoBudget is active, reject cached entries whose stored budgetKr is no longer
     // in the current auto-budget list — e.g. old rows created when 60 kr was a valid option.
@@ -1010,7 +1007,6 @@ async function loadResolvedBacktestPredictions(
       totalLegs: hit.totalLegs ?? 0,
       payoutAmountKr: hit.payoutAmountKr ?? null,
       budgetKr: system.budgetKr ?? 0,
-      targetMinPayoutKr: system.targetMinPayoutKr ?? 0,
       recommendedBudgetKr: recommendedPlay?.budgetKr ?? null,
       recommendedReason: recommendedPlay?.reason ?? null,
       summary: postmortem.summary ?? `${hit.correctLegs ?? 0}/${hit.totalLegs ?? 0} rätt`,
@@ -1028,7 +1024,6 @@ export async function backtestTravHistory(input: {
   pageSize?: number;
   offset?: number;
   budgetKr?: number;
-  targetMinPayoutKr?: number;
   autoBudget?: boolean;
 }) {
   const maxGames = Math.max(1, Math.min(input.maxGames ?? RECENT_TRAV_LEARNING_WINDOW, 500));
@@ -1043,7 +1038,6 @@ export async function backtestTravHistory(input: {
     input.fromDate,
     input.toDate,
     input.autoBudget ? undefined : input.budgetKr,
-    input.autoBudget ? undefined : input.targetMinPayoutKr,
     input.autoBudget,
   );
 
@@ -1098,7 +1092,6 @@ export async function backtestTravHistory(input: {
       const prematchGame = sanitizeHistoricalGameForPrematch(fullGame);
       const snapshot = await buildSnapshotFromGame(prematchGame, {
         budgetKr: input.budgetKr,
-        targetMinPayoutKr: input.targetMinPayoutKr,
         autoBudget: input.autoBudget,
         includeTravsport: true,
         travsportDbCache: hybridTravsportCache,
@@ -1138,7 +1131,6 @@ export async function backtestTravHistory(input: {
         totalLegs: hitSummary.totalLegs,
         payoutAmountKr: hitSummary.payoutAmountKr,
         budgetKr: snapshotWithMeta.system.budgetKr,
-        targetMinPayoutKr: snapshotWithMeta.system.targetMinPayoutKr,
         recommendedBudgetKr: snapshotWithMeta.meta?.recommendedPlay?.budgetKr ?? null,
         recommendedReason: snapshotWithMeta.meta?.recommendedPlay?.reason ?? null,
         summary: postmortem.summary ?? `${hitSummary.correctLegs}/${hitSummary.totalLegs} rätt`,

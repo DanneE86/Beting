@@ -13,7 +13,6 @@ type GameSummaryRow = {
   raceCount: number;
   budgetKr: number;
   costKr: number;
-  targetMinPayoutKr: number;
   rows: number;
   correctLegs: number;
   totalLegs: number;
@@ -173,7 +172,6 @@ async function main() {
     const snapshot = await buildSnapshotFromGame(prematchGame, {
       ruleId: "rule5",
       autoBudget: true,
-      targetMinPayoutKr: game.type === "dd" ? 3_000 : 100_000,
       includeAndelsspel: false,
       includeTravsport: true,
       travsportDbCache: fileCacheBackend,
@@ -189,7 +187,6 @@ async function main() {
       raceCount: game.races.length,
       budgetKr: snapshot.system.budgetKr,
       costKr: snapshot.system.costKr,
-      targetMinPayoutKr: snapshot.system.targetMinPayoutKr,
       rows: snapshot.system.rows,
       correctLegs: hitSummary.correctLegs,
       totalLegs: hitSummary.totalLegs,

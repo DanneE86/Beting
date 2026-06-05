@@ -39,7 +39,6 @@ export const v86Analyze = createServerFn({ method: "POST" })
       date?: string;
       gameId?: string;
       budgetKr?: number;
-      targetMinPayoutKr?: number;
       autoBudget?: boolean;
     }) =>
       z
@@ -47,7 +46,6 @@ export const v86Analyze = createServerFn({ method: "POST" })
           date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
           gameId: z.string().min(1).optional(),
           budgetKr: z.number().min(25).max(50_000).optional(),
-          targetMinPayoutKr: z.number().min(1_000).max(10_000_000).optional(),
           autoBudget: z.boolean().optional(),
         })
         .parse(d),
@@ -57,7 +55,6 @@ export const v86Analyze = createServerFn({ method: "POST" })
       date: data.date,
       gameId: data.gameId,
       budgetKr: data.budgetKr,
-      targetMinPayoutKr: data.targetMinPayoutKr,
       autoBudget: data.autoBudget,
       includeTravsport: true,
       travsportDbCache: hybridTravsportCache,
@@ -125,7 +122,6 @@ export const v86BacktestHistory = createServerFn({ method: "POST" })
       pageSize?: number;
       offset?: number;
       budgetKr?: number;
-      targetMinPayoutKr?: number;
       autoBudget?: boolean;
     }) =>
       z
@@ -137,7 +133,6 @@ export const v86BacktestHistory = createServerFn({ method: "POST" })
           pageSize: z.number().int().min(1).max(50).optional(),
           offset: z.number().int().min(0).optional(),
           budgetKr: z.number().min(25).max(50_000).optional(),
-          targetMinPayoutKr: z.number().min(1_000).max(10_000_000).optional(),
           autoBudget: z.boolean().optional(),
         })
         .parse(d),

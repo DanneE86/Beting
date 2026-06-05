@@ -4,7 +4,7 @@ import {
   listAllowedGamesFromCalendar,
   resolveGame,
 } from "./atg-api";
-import { defaultBudgetKr, defaultMinPayoutKr, gameTypeLabel } from "./game-types";
+import { defaultBudgetKr, gameTypeLabel } from "./game-types";
 import { analyzeGame } from "./analyze";
 import { TRAV_RULE, defaultRuleCoverage } from "./rules";
 import {
@@ -38,7 +38,6 @@ export interface PipelineInput {
   date?: string;
   gameId?: string;
   budgetKr?: number;
-  targetMinPayoutKr?: number;
   autoBudget?: boolean;
   includeAndelsspel?: boolean;
   includeTravsport?: boolean;
@@ -306,10 +305,6 @@ export async function buildSnapshotFromGame(
   const rule = TRAV_RULE;
 
   const autoBudget = input.autoBudget === true;
-  const floorMinPayoutKr = (() => {
-    if (gameType === "dd") return Math.max(1_000, input.targetMinPayoutKr ?? 2_500);
-    return Math.max(60_000, input.targetMinPayoutKr ?? 90_000);
-  })();
 
   let travsportCount = 0;
   let travsportIndex;
@@ -327,28 +322,19 @@ export async function buildSnapshotFromGame(
   const raceStartCount = raceData.reduce((sum, race) => sum + race.starts.length, 0);
   const coverage = defaultRuleCoverage();
 
-  // Bana-specifika justeringar för DD baserade på historisk prestanda:
-  // Boden/Romme: favoriter vinner alltid → pool betalar knappt → kräv mer värde i picks.
-  // Gävle/Örebro: leg2-täckning svag → trackName skickas till systembyggaren för bias-justering.
+  // trackName skickas till systembyggaren för bias-justering (Gävle/Örebro leg2-bias).
   const trackName = gameType === "dd" ? (game.races[0]?.track?.name ?? "") : "";
-  const trackAdjustedFloorPayout = (() => {
-    if (gameType !== "dd") return floorMinPayoutKr;
-    if (trackName === "Boden" || trackName === "Romme") return Math.max(floorMinPayoutKr, 3_500);
-    return floorMinPayoutKr;
-  })();
 
   const recommendedPlay = autoBudget
     ? gameType === "dd"
-      ? recommendDdPlay(game.id, gameType, legs, trackAdjustedFloorPayout)
-      : recommendMainPoolPlay(game.id, gameType, legs, floorMinPayoutKr)
+      ? recommendDdPlay(game.id, gameType, legs)
+      : recommendMainPoolPlay(game.id, gameType, legs)
     : null;
   const budgetKr = recommendedPlay?.budgetKr ?? input.budgetKr ?? defaultBudgetKr(gameType);
-  const targetMinPayoutKr = recommendedPlay?.targetMinPayoutKr ?? trackAdjustedFloorPayout;
   const builtSystem =
     recommendedPlay?.system ??
     buildSystem(game.id, gameType, legs, {
       budgetKr,
-      targetMinPayoutKr,
       trackName: gameType === "dd" ? trackName : undefined,
     });
   const system = {
@@ -358,7 +344,7 @@ export async function buildSnapshotFromGame(
 
   // DD-RAD 2: alternativt system med exakt 1 gemensam häst per lopp
   const builtSystemAlt = gameType === "dd"
-    ? recommendedPlay?.systemAlt ?? buildDdSystemPair(game.id, gameType, legs, { budgetKr, targetMinPayoutKr, trackName }).alternative
+    ? recommendedPlay?.systemAlt ?? buildDdSystemPair(game.id, gameType, legs, { budgetKr, trackName }).alternative
     : undefined;
   const systemAlt = builtSystemAlt
     ? { ...builtSystemAlt, hitOutlook: computeSystemHitOutlook(legs, builtSystemAlt) }
@@ -397,7 +383,6 @@ export async function buildSnapshotFromGame(
         ? {
             mode: "auto-budget",
             budgetKr: recommendedPlay.budgetKr,
-            targetMinPayoutKr: recommendedPlay.targetMinPayoutKr,
             opennessScore: recommendedPlay.opennessScore,
             reason: recommendedPlay.reason,
           }

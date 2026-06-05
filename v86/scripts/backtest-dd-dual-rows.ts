@@ -7,7 +7,7 @@ import { resolve } from "node:path";
 import { buildSystemHitSummary, extractTravResult } from "../../src/lib/trav-learning.server";
 import { fileCacheBackend } from "../src/travsport/file-cache";
 import { fetchCalendarDay, fetchGame, listAllowedGamesFromCalendar } from "../src/atg-api";
-import { defaultBudgetKr, defaultMinPayoutKr } from "../src/game-types";
+import { defaultBudgetKr } from "../src/game-types";
 import { buildSnapshotFromGame, sanitizeHistoricalGameForPrematch } from "../src/pipeline";
 import { formatDdSystemLine, legPickOverlap } from "../src/system-builder";
 import type { BuiltSystem } from "../src/types";
@@ -119,7 +119,6 @@ async function main() {
     const prematchGame = sanitizeHistoricalGameForPrematch(fullGame);
     const snapshot = await buildSnapshotFromGame(prematchGame, {
       budgetKr: defaultBudgetKr("dd"),
-      targetMinPayoutKr: defaultMinPayoutKr("dd"),
       includeAndelsspel: false,
       includeTravsport: true,
       travsportDbCache: fileCacheBackend,

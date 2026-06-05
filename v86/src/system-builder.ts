@@ -8,7 +8,6 @@ import type {
 
 export interface BuildOptions {
   budgetKr: number;
-  targetMinPayoutKr: number;
   forceSkrellLeg?: number | null;
   trackName?: string;
 }
@@ -48,7 +47,6 @@ export const AUTO_DD_BUDGETS_KR = [30, 40] as const;
 
 export interface RecommendedMainPoolPlay {
   budgetKr: number;
-  targetMinPayoutKr: number;
   opennessScore: number;
   reason: string;
   system: BuiltSystem;
@@ -554,7 +552,7 @@ function evaluateDdSystem(
     legHitProbabilities.reduce((sum, value) => sum + value, 0) / Math.max(1, legHitProbabilities.length) -
     longshotRisk * 0.25 -
     asymmetryPenalty * 0.01;
-  const payoutTargetFactor = Math.min(2.2, Math.max(0.85, options.targetMinPayoutKr / 2_500));
+  const payoutTargetFactor = 1.0;
 
   return {
     hitProbability,
@@ -866,16 +864,13 @@ function buildSystemFromSelections(
   const unitKr = rowPriceKr(gameType);
   const rows = product(normalizedSelections.map((selection) => selection.picks.length));
   const costKr = rows * unitKr;
-  const gameLabel = gameType === "dd" ? "Dagens Dubbel" : gameType;
   return {
     gameId,
     gameType,
     budgetKr: options.budgetKr,
     rows,
     costKr,
-    targetMinPayoutKr: options.targetMinPayoutKr,
     estimatedPayoutNote:
-      `Mål: utdelning ≥ ${options.targetMinPayoutKr.toLocaleString("sv-SE")} kr vid fullträff (${gameLabel}). ` +
       `ATG garanterar inte min utdelning – se atg.se. ` +
       `System: ${rows} rader × ${unitKr} kr = ${costKr.toFixed(2)} kr.`,
     selections: normalizedSelections,
@@ -909,7 +904,7 @@ function evaluateMainPoolSystem(
   const probabilityVariance =
     probabilities.reduce((sum, value) => sum + Math.pow(value - averageProbability, 2), 0) /
     Math.max(1, probabilities.length);
-  const payoutTargetFactor = Math.min(1.8, Math.max(0.9, options.targetMinPayoutKr / 50_000));
+  const payoutTargetFactor = 1.8;
   const antiCrowdScore =
     marketShares.reduce((sum, share) => sum + -Math.log(Math.min(0.985, Math.max(0.03, share))), 0) /
     Math.max(1, marketShares.length);
@@ -963,11 +958,8 @@ function mainPoolCandidateScore(
   stateLocalScore = 0,
 ): number {
   const metrics = evaluateMainPoolSystem(legs, candidate, options);
-  // Högt mål (>50k) → öka vikten på utdelningspotential och belöna spikar (krävs för stora utdelningar).
-  // Standardmål (≤50k) → oförändrade vikter för att bevara stabilitet i befintliga system.
-  const payoutTargetFactor = Math.min(1.8, Math.max(1.0, options.targetMinPayoutKr / 50_000));
-  const payoutWeight = options.targetMinPayoutKr > 50_000 ? Math.round(58 * payoutTargetFactor) : 58;
-  const spikeTargetBonus = metrics.spikeCount * Math.max(0, payoutTargetFactor - 1.0) * 12;
+  const payoutWeight = 104;
+  const spikeTargetBonus = metrics.spikeCount * 9.6;
   const underusePenalty = Math.max(0, 0.86 - metrics.budgetUsage) * 175;
   const spikeOverloadPenalty = Math.max(0, metrics.spikeCount - 5) * 8;
   const riskySinglePickPenalty = candidate.selections.reduce((sum, selection) => {
@@ -1035,7 +1027,6 @@ function preferredBudgetFromOpenness(score: number): (typeof AUTO_MAIN_POOL_BUDG
 
 function buildRecommendationReason(
   budgetKr: number,
-  targetMinPayoutKr: number,
   metrics: CandidateSystemMetrics,
   openness: number,
   preferredBudget: number,
@@ -1068,18 +1059,16 @@ function buildRecommendationReason(
     budgetKr === preferredBudget
       ? `${budgetKr} kr matchar loppens öppenhet bäst`
       : `${budgetKr} kr slog de andra nivåerna trots att ${preferredBudget} kr låg närmast öppningsprofilen`;
-  return `${opennessText}: ${budgetText}, ${usageText}, ${stabilityText} och modellen landar ${spikeText}. Målutdelning hålls på minst ${targetMinPayoutKr.toLocaleString("sv-SE")} kr.`;
+  return `${opennessText}: ${budgetText}, ${usageText}, ${stabilityText} och modellen landar ${spikeText}.`;
 }
 
 export function recommendMainPoolPlay(
   gameId: string,
   gameType: PoolGameType,
   legs: LegAnalysis[],
-  minTargetMinPayoutKr = 30_000,
 ): RecommendedMainPoolPlay | null {
   if (gameType === "dd") return null;
 
-  const targetMinPayoutKr = Math.max(30_000, minTargetMinPayoutKr);
   const openness = opennessScore(legs);
   const preferredBudget = preferredBudgetFromOpenness(openness);
   let best:
@@ -1091,22 +1080,19 @@ export function recommendMainPoolPlay(
       }
     | null = null;
 
-  const payoutTargetFactor = Math.min(1.8, Math.max(1.0, targetMinPayoutKr / 50_000));
-  const payoutWeight = targetMinPayoutKr > 50_000 ? Math.round(58 * payoutTargetFactor) : 58;
+  const payoutWeight = 104;
 
   for (const budgetKr of AUTO_MAIN_POOL_BUDGETS_KR) {
     const system = buildSystem(gameId, gameType, legs, {
       budgetKr,
-      targetMinPayoutKr,
     });
     const metrics = evaluateMainPoolSystem(legs, system, {
       budgetKr,
-      targetMinPayoutKr,
     });
     const underusePenalty = Math.max(0, 0.94 - metrics.budgetUsage) * 120;
     const distancePenalty = Math.abs(budgetKr - preferredBudget) / 100 * 9;
     const costPenalty = (budgetKr - 600) / 100 * 6;
-    const spikeTargetBonus = metrics.spikeCount * Math.max(0, payoutTargetFactor - 1.0) * 12;
+    const spikeTargetBonus = metrics.spikeCount * 9.6;
     const stabilityBias =
       metrics.probabilitySixPlus * 170 +
       metrics.coverageBalance * 75 -
@@ -1133,11 +1119,9 @@ export function recommendMainPoolPlay(
 
   return {
     budgetKr: best.budgetKr,
-    targetMinPayoutKr,
     opennessScore: Math.round(openness * 100) / 100,
     reason: buildRecommendationReason(
       best.budgetKr,
-      targetMinPayoutKr,
       best.metrics,
       openness,
       preferredBudget,
@@ -1148,7 +1132,6 @@ export function recommendMainPoolPlay(
 
 function buildDdRecommendationReason(
   budgetKr: (typeof AUTO_DD_BUDGETS_KR)[number],
-  targetMinPayoutKr: number,
   system: BuiltSystem,
   metrics: DdCandidateMetrics,
 ): string {
@@ -1156,7 +1139,7 @@ function buildDdRecommendationReason(
   const structureText = system.selections.some((selection) => selection.type !== "gardering")
     ? "en tydlig DD-spikprofil"
     : "en helt garderad DD-profil";
-  return `${budgetKr} kr gav bäst balans mellan ${structureText}, ${hitRateText} och en rimlig chans att nå minst ${targetMinPayoutKr.toLocaleString("sv-SE")} kr vid träff.`;
+  return `${budgetKr} kr gav bäst balans mellan ${structureText} och ${hitRateText}.`;
 }
 
 type DdSystemCandidate = { system: BuiltSystem; score: number };
@@ -1213,7 +1196,7 @@ function collectDdSystemCandidates(gameId: string, gameType: PoolGameType, legs:
       if (rows > maxRows) continue;
       const selections = [buildDdSelection(ddLegs[0], coverageOrders[0].slice(0, firstCount)), buildDdSelection(ddLegs[1], coverageOrders[1].slice(0, secondCount))];
       const costKr = rows * unitKr;
-      const system: BuiltSystem = { gameId, gameType, budgetKr: options.budgetKr, rows, costKr, targetMinPayoutKr: options.targetMinPayoutKr, estimatedPayoutNote: `Mål: utdelning ≥ ${options.targetMinPayoutKr.toLocaleString("sv-SE")} kr vid DD-träff. System: ${rows} rader × ${unitKr} kr = ${costKr.toFixed(2)} kr.`, selections, skrellSpikeLeg: selections.find((s) => s.type === "skrell-spik")?.leg ?? null };
+      const system: BuiltSystem = { gameId, gameType, budgetKr: options.budgetKr, rows, costKr, estimatedPayoutNote: `ATG garanterar inte min utdelning – se atg.se. System: ${rows} rader × ${unitKr} kr = ${costKr.toFixed(2)} kr.`, selections, skrellSpikeLeg: selections.find((s) => s.type === "skrell-spik")?.leg ?? null };
       const metrics = evaluateDdSystem(ddLegs, system, options);
       const rowsPenalty = rows < Math.max(1, maxRows - 1) ? (Math.max(1, maxRows - 1) - rows) * 18 : 0;
       // Standard: 3×2 ger ~43% träff vs 2×3 ~23% → belöna leg1-täckning.
@@ -1246,7 +1229,7 @@ function buildDdSharedHorseAlternative(gameId: string, gameType: PoolGameType, l
           const picks2 = pickDdLegWithExactShared(ddLegs[1], primaryByLeg.get(ddLegs[1].leg) ?? [], secondCount, DD_SHARED_HORSES_PER_LEG, s1);
           if (!picks1 || !picks2) continue;
           const selections = [buildDdSelection(ddLegs[0], picks1), buildDdSelection(ddLegs[1], picks2)];
-          const system: BuiltSystem = { gameId, gameType, budgetKr: options.budgetKr, rows, costKr: rows * unitKr, targetMinPayoutKr: options.targetMinPayoutKr, estimatedPayoutNote: `Alternativ DD-profil (${firstCount}×${secondCount}) med exakt ${DD_SHARED_HORSES_PER_LEG} gemensam häst per lopp mot system 1.`, selections, skrellSpikeLeg: selections.find((s) => s.type === "skrell-spik")?.leg ?? null };
+          const system: BuiltSystem = { gameId, gameType, budgetKr: options.budgetKr, rows, costKr: rows * unitKr, estimatedPayoutNote: `Alternativ DD-profil (${firstCount}×${secondCount}) med exakt ${DD_SHARED_HORSES_PER_LEG} gemensam häst per lopp mot system 1.`, selections, skrellSpikeLeg: selections.find((s) => s.type === "skrell-spik")?.leg ?? null };
           if (!isValidDdAlternative(primary, system, options, gameType)) continue;
           const metrics = evaluateDdSystem(ddLegs, system, options);
           const rowsPenalty = rows < Math.max(1, maxRows - 1) ? (Math.max(1, maxRows - 1) - rows) * 18 : 0;
@@ -1276,18 +1259,16 @@ export function recommendDdPlay(
   gameId: string,
   gameType: PoolGameType,
   legs: LegAnalysis[],
-  minTargetMinPayoutKr = 1_500,
 ): RecommendedMainPoolPlay | null {
   if (gameType !== "dd") return null;
 
-  const targetMinPayoutKr = Math.max(1_000, minTargetMinPayoutKr);
   let best:
     | { budgetKr: (typeof AUTO_DD_BUDGETS_KR)[number]; system: BuiltSystem; systemAlt: BuiltSystem; metrics: DdCandidateMetrics; score: number }
     | null = null;
 
   for (const budgetKr of AUTO_DD_BUDGETS_KR) {
-    const pair = buildDdSystemPair(gameId, gameType, legs, { budgetKr, targetMinPayoutKr });
-    const metrics = evaluateDdSystem(legs, pair.primary, { budgetKr, targetMinPayoutKr });
+    const pair = buildDdSystemPair(gameId, gameType, legs, { budgetKr });
+    const metrics = evaluateDdSystem(legs, pair.primary, { budgetKr });
     const score = scoreDdSystem(metrics) - (budgetKr === 40 ? 4 : 0);
     if (!best || score > best.score) best = { budgetKr, system: pair.primary, systemAlt: pair.alternative, metrics, score };
   }
@@ -1296,9 +1277,8 @@ export function recommendDdPlay(
 
   return {
     budgetKr: best.budgetKr,
-    targetMinPayoutKr,
     opennessScore: Math.round(best.metrics.hitProbability * 100) / 100,
-    reason: buildDdRecommendationReason(best.budgetKr, targetMinPayoutKr, best.system, best.metrics),
+    reason: buildDdRecommendationReason(best.budgetKr, best.system, best.metrics),
     system: best.system,
     systemAlt: best.systemAlt,
   };
@@ -1348,9 +1328,8 @@ function buildDdSystem(
         budgetKr: options.budgetKr,
         rows,
         costKr,
-        targetMinPayoutKr: options.targetMinPayoutKr,
         estimatedPayoutNote:
-          `Mål: utdelning ≥ ${options.targetMinPayoutKr.toLocaleString("sv-SE")} kr vid DD-träff. ` +
+          `ATG garanterar inte min utdelning – se atg.se. ` +
           `System: ${rows} rader × ${unitKr} kr = ${costKr.toFixed(2)} kr.`,
         selections,
         skrellSpikeLeg:
@@ -1486,13 +1465,11 @@ function buildCandidateSystem(
     costKr = rows * unitKr;
   }
 
-  const gameLabel = gameType === "dd" ? "Dagens Dubbel" : gameType;
   const normalizedSelections = selections.map((selection) => {
     const leg = legs.find((item) => item.leg === selection.leg);
     return leg ? normalizeSelectionForLeg(leg, selection) : selection;
   });
   const estimatedPayoutNote =
-    `Mål: utdelning ≥ ${options.targetMinPayoutKr.toLocaleString("sv-SE")} kr vid fullträff (${gameLabel}). ` +
     `ATG garanterar inte min utdelning – se atg.se. ` +
     `System: ${rows} rader × ${unitKr} kr = ${costKr.toFixed(2)} kr.`;
 
@@ -1502,7 +1479,6 @@ function buildCandidateSystem(
     budgetKr: options.budgetKr,
     rows,
     costKr,
-    targetMinPayoutKr: options.targetMinPayoutKr,
     estimatedPayoutNote,
     selections: normalizedSelections,
     skrellSpikeLeg: normalizedSelections.find((selection) => selection.type === "skrell-spik")?.leg ?? null,

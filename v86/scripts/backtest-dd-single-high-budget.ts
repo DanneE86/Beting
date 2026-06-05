@@ -59,7 +59,6 @@ async function runBudget(rounds: { gameId: string; gameDate: string }[], budgetK
     const prematchGame = sanitizeHistoricalGameForPrematch(fullGame);
     const snapshot = await buildSnapshotFromGame(prematchGame, {
       budgetKr,
-      targetMinPayoutKr: 1500,
       includeAndelsspel: false,
       includeTravsport: true,
       travsportDbCache: fileCacheBackend,

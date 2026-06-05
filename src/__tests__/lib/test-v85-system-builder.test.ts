@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import {
   AUTO_DD_BUDGETS_KR,
   AUTO_MAIN_POOL_BUDGETS_KR,
@@ -36,7 +36,7 @@ function horse(
     tempoTripScore: 0.64,
     tempoTripStyle: "versatile",
     gallopRiskScore: 0.78,
-    gallopRiskLevel: "låg",
+    gallopRiskLevel: "lÃ¥g",
     highlights: [],
     horseChecklist: [],
     driverChecklist: [],
@@ -100,7 +100,7 @@ function withoutMarketSignals(legs: LegAnalysis[]): LegAnalysis[] {
 }
 
 describe("buildSystem", () => {
-  it("respekterar tvingad skrällspik i V85 utan krav på två spikar", () => {
+  it("respekterar tvingad skrÃ¤llspik i V85 utan krav pÃ¥ tvÃ¥ spikar", () => {
     const legs: LegAnalysis[] = [
       leg(1, "spik", [horse(1, 58, 0.82), horse(2, 16, 0.56)], 1),
       leg(2, "gardering", [horse(1, 35, 0.65), horse(2, 18, 0.61), horse(3, 11, 0.58)], 1),
@@ -114,7 +114,6 @@ describe("buildSystem", () => {
 
     const system = buildSystem("V85_test", "V85", legs, {
       budgetKr: 400,
-      targetMinPayoutKr: 30000,
       forceSkrellLeg: 3,
     });
 
@@ -125,7 +124,7 @@ describe("buildSystem", () => {
     expect(system.selections.find((selection) => selection.leg === 3)?.picks).toEqual([6]);
   });
 
-  it("kan bygga V85 helt utan spikar när inget lopp sticker ut", () => {
+  it("kan bygga V85 helt utan spikar nÃ¤r inget lopp sticker ut", () => {
     const legs: LegAnalysis[] = [
       leg(1, "spik", [horse(1, 54, 0.8), horse(2, 18, 0.55)], 1),
       leg(2, "gardering", [horse(1, 32, 0.64), horse(5, 21, 0.62, 1.4)], 1),
@@ -139,14 +138,13 @@ describe("buildSystem", () => {
 
     const system = buildSystem("V85_test", "V85", legs, {
       budgetKr: 400,
-      targetMinPayoutKr: 30000,
     });
 
     const spikar = system.selections.filter((selection) => selection.type !== "gardering");
     expect(spikar).toHaveLength(0);
   });
 
-  it("låser inte vanlig spik till marknadsfavorit när modellen föredrar annan häst", () => {
+  it("lÃ¥ser inte vanlig spik till marknadsfavorit nÃ¤r modellen fÃ¶redrar annan hÃ¤st", () => {
     const legs: LegAnalysis[] = [
       leg(1, "gardering", [horse(1, 41, 0.67), horse(6, 8, 0.69, 2.2), horse(9, 6, 0.63, 1.8)], 1, 6),
       leg(2, "spik", [horse(1, 44, 0.63), horse(7, 18, 0.86, 2.2), horse(4, 9, 0.6, 1.5)], 1, 4),
@@ -160,7 +158,6 @@ describe("buildSystem", () => {
 
     const system = buildSystem("V85_double_value", "V85", legs, {
       budgetKr: 400,
-      targetMinPayoutKr: 30000,
     });
 
     const spikar = system.selections.filter((selection) => selection.type !== "gardering");
@@ -168,7 +165,7 @@ describe("buildSystem", () => {
     expect(system.selections.find((selection) => selection.leg === 2)?.picks[0]).toBe(7);
   });
 
-  it("kan lämna helt öppna lopp garderade utan att uppfinna extra spikar", () => {
+  it("kan lÃ¤mna helt Ã¶ppna lopp garderade utan att uppfinna extra spikar", () => {
     const legs: LegAnalysis[] = [
       leg(1, "gardering", [horse(1, 35, 0.68), horse(2, 18, 0.66), horse(3, 11, 0.61)], 1),
       leg(2, "gardering", [horse(1, 31, 0.66), horse(7, 13, 0.72, 2.1), horse(5, 11, 0.61)], 1),
@@ -182,7 +179,6 @@ describe("buildSystem", () => {
 
     const system = buildSystem("V85_single_value", "V85", legs, {
       budgetKr: 400,
-      targetMinPayoutKr: 30000,
     });
 
     const spikar = system.selections.filter((selection) => selection.type !== "gardering");
@@ -190,7 +186,7 @@ describe("buildSystem", () => {
     expect(system.selections.find((selection) => selection.leg === 3)?.type).toBe("gardering");
   });
 
-  it("kan fortfarande välja modellspikar när spelprocent saknas helt", () => {
+  it("kan fortfarande vÃ¤lja modellspikar nÃ¤r spelprocent saknas helt", () => {
     const legs: LegAnalysis[] = Array.from({ length: 8 }, (_, i) =>
       leg(
         i + 1,
@@ -206,7 +202,6 @@ describe("buildSystem", () => {
 
     const system = buildSystem("V85_zero_market", "V85", legs, {
       budgetKr: 400,
-      targetMinPayoutKr: 30000,
     });
 
     const spikar = system.selections.filter((selection) => selection.type !== "gardering");
@@ -215,7 +210,7 @@ describe("buildSystem", () => {
     expect(spikar.every((selection) => selection.type === "spik")).toBe(true);
   });
 
-  it("bygger samma V85-system även om bara strecken ändras", () => {
+  it("bygger samma V85-system Ã¤ven om bara strecken Ã¤ndras", () => {
     const legsA = withoutMarketSignals([
       leg(1, "gardering", [horse(1, 58, 0.74), horse(2, 19, 0.68), horse(3, 9, 0.61)], 1, 2),
       leg(2, "bred", [horse(4, 44, 0.7), horse(5, 21, 0.67), horse(6, 12, 0.63), horse(7, 8, 0.58)], 4, 5),
@@ -239,11 +234,9 @@ describe("buildSystem", () => {
 
     const systemA = buildSystem("V85_market_free_a", "V85", legsA, {
       budgetKr: 600,
-      targetMinPayoutKr: 30000,
     });
     const systemB = buildSystem("V85_market_free_b", "V85", legsB, {
       budgetKr: 600,
-      targetMinPayoutKr: 30000,
     });
 
     expect(systemA.selections.map((selection) => selection.picks)).toEqual(
@@ -255,7 +248,7 @@ describe("buildSystem", () => {
     expect(systemA.costKr).toBe(systemB.costKr);
   });
 
-  it("låter marknadssignaler ändra ordinarie Regel 2-system", () => {
+  it("lÃ¥ter marknadssignaler Ã¤ndra ordinarie Regel 2-system", () => {
     const legsA: LegAnalysis[] = [
       leg(1, "gardering", [horse(1, 58, 0.74), horse(2, 19, 0.68), horse(3, 9, 0.61)], 1, 2),
       leg(2, "bred", [horse(4, 44, 0.7), horse(5, 21, 0.67), horse(6, 12, 0.63), horse(7, 8, 0.58)], 4, 5),
@@ -279,11 +272,9 @@ describe("buildSystem", () => {
 
     const systemA = buildSystem("V85_rule2_a", "V85", legsA, {
       budgetKr: 600,
-      targetMinPayoutKr: 30000,
     });
     const systemB = buildSystem("V85_rule2_b", "V85", legsB, {
       budgetKr: 600,
-      targetMinPayoutKr: 30000,
     });
 
     expect(systemA.selections.map((selection) => selection.picks)).not.toEqual(
@@ -291,7 +282,7 @@ describe("buildSystem", () => {
     );
   });
 
-  it("tvingar inte två spikar i DD", () => {
+  it("tvingar inte tvÃ¥ spikar i DD", () => {
     const legs: LegAnalysis[] = [
       leg(1, "gardering", [horse(1, 34, 0.63), horse(2, 23, 0.6)], 1),
       leg(2, "gardering", [horse(1, 36, 0.64), horse(3, 21, 0.59)], 1),
@@ -299,7 +290,6 @@ describe("buildSystem", () => {
 
     const system = buildSystem("dd_test", "dd", legs, {
       budgetKr: 60,
-      targetMinPayoutKr: 2_000,
     });
 
     const spikar = system.selections.filter((selection) => selection.type !== "gardering");
@@ -307,14 +297,14 @@ describe("buildSystem", () => {
     expect(system.rows).toBeLessThanOrEqual(6);
   });
 
-  it("undviker helst spik på häst med hög galopprisk", () => {
+  it("undviker helst spik pÃ¥ hÃ¤st med hÃ¶g galopprisk", () => {
     const legs: LegAnalysis[] = [
       leg(
         1,
         "spik",
         [
-          horse(1, 32, 0.84, 1.5, { gallopRiskScore: 0.22, gallopRiskLevel: "hög", tempoTripScore: 0.55 }),
-          horse(2, 24, 0.8, 1.4, { gallopRiskScore: 0.88, gallopRiskLevel: "låg", tempoTripScore: 0.72 }),
+          horse(1, 32, 0.84, 1.5, { gallopRiskScore: 0.22, gallopRiskLevel: "hÃ¶g", tempoTripScore: 0.55 }),
+          horse(2, 24, 0.8, 1.4, { gallopRiskScore: 0.88, gallopRiskLevel: "lÃ¥g", tempoTripScore: 0.72 }),
           horse(3, 12, 0.61),
         ],
         1,
@@ -331,7 +321,6 @@ describe("buildSystem", () => {
 
     const system = buildSystem("V85_gallop_guard", "V85", legs, {
       budgetKr: 600,
-      targetMinPayoutKr: 30000,
     });
 
     const selection = system.selections.find((item) => item.leg === 1);
@@ -340,7 +329,7 @@ describe("buildSystem", () => {
     expect(selection!.picks).not.toEqual([1]);
   });
 
-  it("behåller skrällhästen i garderat lopp för bättre skrälltäckning", () => {
+  it("behÃ¥ller skrÃ¤llhÃ¤sten i garderat lopp fÃ¶r bÃ¤ttre skrÃ¤lltÃ¤ckning", () => {
     const legs: LegAnalysis[] = [
       leg(
         1,
@@ -354,14 +343,13 @@ describe("buildSystem", () => {
 
     const system = buildSystem("dd_skrell_cover", "dd", legs, {
       budgetKr: 50,
-      targetMinPayoutKr: 2_000,
     });
 
     expect(system.selections.find((selection) => selection.leg === 1)?.picks).toContain(9);
     expect(system.costKr).toBeLessThanOrEqual(50);
   });
 
-  it("behåller öppet DD-lopp med skrällpotential garderat inom budget", () => {
+  it("behÃ¥ller Ã¶ppet DD-lopp med skrÃ¤llpotential garderat inom budget", () => {
     const legs: LegAnalysis[] = [
       leg(
         1,
@@ -386,7 +374,6 @@ describe("buildSystem", () => {
 
     const system = buildSystem("dd_expand_priority", "dd", legs, {
       budgetKr: 60,
-      targetMinPayoutKr: 2_000,
     });
 
     expect(system.rows).toBeLessThanOrEqual(6);
@@ -395,7 +382,7 @@ describe("buildSystem", () => {
     expect(system.selections.find((selection) => selection.leg === 2)?.picks).toContain(7);
   });
 
-  it("håller ett hårt budgettak även när grundsystemet blir för stort", () => {
+  it("hÃ¥ller ett hÃ¥rt budgettak Ã¤ven nÃ¤r grundsystemet blir fÃ¶r stort", () => {
     const legs: LegAnalysis[] = [
       leg(1, "spik", [horse(1, 56, 0.82), horse(2, 18, 0.61)], 1),
       leg(2, "gardering", [horse(1, 31, 0.7), horse(2, 26, 0.69), horse(3, 18, 0.67), horse(4, 12, 0.65)], 1),
@@ -409,13 +396,12 @@ describe("buildSystem", () => {
 
     const system = buildSystem("V85_budget_cap", "V85", legs, {
       budgetKr: 500,
-      targetMinPayoutKr: 30000,
     });
 
     expect(system.costKr).toBeLessThanOrEqual(500);
   });
 
-  it("kan lämna fler hästar kvar i öppet lopp och trimma svagare lopp inom budget", () => {
+  it("kan lÃ¤mna fler hÃ¤star kvar i Ã¶ppet lopp och trimma svagare lopp inom budget", () => {
     const legs: LegAnalysis[] = [
       leg(
         1,
@@ -433,7 +419,6 @@ describe("buildSystem", () => {
 
     const system = buildSystem("dd_rebalance", "dd", legs, {
       budgetKr: 50,
-      targetMinPayoutKr: 2_000,
     });
 
     expect(system.costKr).toBeLessThanOrEqual(50);
@@ -441,7 +426,7 @@ describe("buildSystem", () => {
     expect(system.selections.every((selection) => selection.picks.length >= 1)).toBe(true);
   });
 
-  it("bygger större V85-budget som en utökning av mindre system på samma data", () => {
+  it("bygger stÃ¶rre V85-budget som en utÃ¶kning av mindre system pÃ¥ samma data", () => {
     const legs: LegAnalysis[] = [
       leg(1, "gardering", [horse(1, 35, 0.71), horse(2, 24, 0.68), horse(3, 16, 0.63), horse(4, 10, 0.58)], 1),
       leg(2, "bred", [horse(5, 28, 0.69), horse(7, 21, 0.67), horse(8, 15, 0.64), horse(9, 11, 0.6)], 5),
@@ -455,18 +440,16 @@ describe("buildSystem", () => {
 
     const system600 = buildSystem("V85_monotonic", "V85", legs, {
       budgetKr: 600,
-      targetMinPayoutKr: 30000,
     });
     const system1000 = buildSystem("V85_monotonic", "V85", legs, {
       budgetKr: 1000,
-      targetMinPayoutKr: 30000,
     });
 
     expect(system1000.costKr).toBeGreaterThanOrEqual(system600.costKr);
     expectSupersetByLeg(system600, system1000);
   });
 
-  it("bygger större V86-budget som en utökning av mindre system på samma data", () => {
+  it("bygger stÃ¶rre V86-budget som en utÃ¶kning av mindre system pÃ¥ samma data", () => {
     const legs: LegAnalysis[] = [
       leg(1, "gardering", [horse(1, 34, 0.7), horse(2, 23, 0.67), horse(5, 15, 0.63), horse(8, 9, 0.58)], 1),
       leg(2, "bred", [horse(7, 26, 0.68), horse(3, 24, 0.67), horse(10, 14, 0.64), horse(1, 11, 0.61)], 7),
@@ -480,18 +463,16 @@ describe("buildSystem", () => {
 
     const system600 = buildSystem("V86_monotonic", "V86", legs, {
       budgetKr: 600,
-      targetMinPayoutKr: 30000,
     });
     const system1000 = buildSystem("V86_monotonic", "V86", legs, {
       budgetKr: 1000,
-      targetMinPayoutKr: 30000,
     });
 
     expect(system1000.costKr).toBeGreaterThanOrEqual(system600.costKr);
     expectSupersetByLeg(system600, system1000);
   });
 
-  it("auto-föreslår en huvudspelsbudget inom 600-1000 kr och minst 30k målutdelning", () => {
+  it("auto-fÃ¶reslÃ¥r en huvudspelsbudget inom 600-1000 kr och minst 30k mÃ¥lutdelning", () => {
     const legs: LegAnalysis[] = [
       leg(1, "gardering", [horse(1, 33, 0.68), horse(5, 16, 0.66, 1.9), horse(7, 11, 0.61)], 1, 5),
       leg(2, "bred", [horse(1, 25, 0.63), horse(6, 20, 0.62, 1.7), horse(8, 14, 0.6)], 1, 6),
@@ -503,16 +484,14 @@ describe("buildSystem", () => {
       leg(8, "gardering", [horse(1, 29, 0.64), horse(6, 14, 0.61, 1.7)], 1, 6),
     ];
 
-    const recommendation = recommendMainPoolPlay("V85_auto", "V85", legs, 20_000);
+    const recommendation = recommendMainPoolPlay("V85_auto", "V85", legs);
 
     expect(recommendation).not.toBeNull();
     expect(AUTO_MAIN_POOL_BUDGETS_KR).toContain(recommendation!.budgetKr);
-    expect(recommendation!.targetMinPayoutKr).toBeGreaterThanOrEqual(30_000);
     expect(recommendation!.system.costKr).toBeLessThanOrEqual(recommendation!.budgetKr);
-    expect(recommendation!.reason).toMatch(/30 000|30/);
   });
 
-  it("väljer en huvudspelsbudget som också används vettigt av systemet", () => {
+  it("vÃ¤ljer en huvudspelsbudget som ocksÃ¥ anvÃ¤nds vettigt av systemet", () => {
     const legs: LegAnalysis[] = Array.from({ length: 8 }, (_, i) =>
       leg(
         i + 1,
@@ -522,14 +501,14 @@ describe("buildSystem", () => {
       ),
     );
 
-    const recommendation = recommendMainPoolPlay("V85_tight", "V85", legs, 30_000);
+    const recommendation = recommendMainPoolPlay("V85_tight", "V85", legs);
 
     expect(recommendation).not.toBeNull();
     expect(AUTO_MAIN_POOL_BUDGETS_KR).toContain(recommendation!.budgetKr);
     expect(recommendation!.system.costKr / recommendation!.budgetKr).toBeGreaterThan(0.75);
   });
 
-  it("auto-föreslår DD-budget inom 50-60 kr med liten systemprofil", () => {
+  it("auto-fÃ¶reslÃ¥r DD-budget inom 50-60 kr med liten systemprofil", () => {
     const legs: LegAnalysis[] = [
       leg(
         1,
@@ -553,13 +532,12 @@ describe("buildSystem", () => {
       ),
     ];
 
-    const recommendation = recommendDdPlay("dd_auto", "dd", legs, 2_000);
+    const recommendation = recommendDdPlay("dd_auto", "dd", legs);
 
     expect(recommendation).not.toBeNull();
     expect(AUTO_DD_BUDGETS_KR).toContain(recommendation!.budgetKr);
     expect(recommendation!.system.costKr).toBeLessThanOrEqual(recommendation!.budgetKr);
     expect(recommendation!.system.rows).toBeLessThanOrEqual(6);
-    expect(recommendation!.targetMinPayoutKr).toBeGreaterThanOrEqual(1_000);
     expect(recommendation!.reason).toMatch(/DD|kr/);
   });
 });

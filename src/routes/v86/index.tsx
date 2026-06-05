@@ -364,7 +364,6 @@ export function TravRuleDashboardPage({
           date,
           gameId: gameId || undefined,
           budgetKr: autoBudget && supportsAutoBudget ? undefined : budgetKr,
-          targetMinPayoutKr: undefined,
           autoBudget: autoBudget && supportsAutoBudget,
         },
       }),
@@ -415,7 +414,6 @@ export function TravRuleDashboardPage({
           pageSize: BACKTEST_PAGE_SIZE,
           offset,
           budgetKr: s.autoBudget ? undefined : s.budgetKr,
-          targetMinPayoutKr: undefined,
           autoBudget: s.autoBudget,
         },
       });
