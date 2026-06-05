@@ -1024,6 +1024,31 @@ export async function backtestTravHistory(input: {
     input.autoBudget ? undefined : input.targetMinPayoutKr,
   );
 
+  // Fast path: if the DB cache already covers this page, return immediately without
+  // any ATG calendar API calls. The cache entries are already sorted by game_date desc
+  // from the DB query, so we just slice the right page.
+  const sortedCached = Array.from(dbCache.values())
+    .filter((r) => r.gameDate != null)
+    .sort((a, b) => (b.gameDate ?? "").localeCompare(a.gameDate ?? ""));
+
+  if (sortedCached.length >= offset + pageSize) {
+    const pageRows = sortedCached.slice(offset, offset + pageSize);
+    const hasMore = sortedCached.length > offset + pageSize;
+    if (!hasMore && pageRows.length > 0) {
+      await updateTravLearningPrompt(input.gameType);
+    }
+    return {
+      backtested: pageRows.length,
+      rows: pageRows,
+      fromDate: input.fromDate,
+      toDate: input.toDate,
+      gameType: input.gameType,
+      hasMore,
+      offset,
+    };
+  }
+
+  // Slow path: DB cache insufficient — iterate ATG calendar to find and process uncached games
   let gamesSkipped = 0;
   for (const date of dateRangeDescending(input.fromDate, input.toDate)) {
     if (rows.length >= pageSize) break;
