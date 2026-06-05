@@ -950,6 +950,7 @@ async function loadResolvedBacktestPredictions(
   toDate: string,
   budgetKr?: number,
   targetMinPayoutKr?: number,
+  autoBudget?: boolean,
 ): Promise<Map<string, BacktestRow>> {
   const { data } = await supabaseAdmin
     .from("trav_predictions")
@@ -970,6 +971,16 @@ async function loadResolvedBacktestPredictions(
   for (const row of sorted) {
     const meta = (row.meta_json ?? {}) as Record<string, unknown>;
     if (ruleIdFromMeta(meta) !== ruleId) continue;
+
+    // When running with autoBudget, exclude live predictions that were NOT made
+    // with auto-budget — they may have used a manually set budget and would skew results.
+    if (autoBudget) {
+      const source = String(meta.source ?? "live");
+      const isAutoSource =
+        source === "historical-backtest" ||
+        (meta.recommendedPlay as Record<string, unknown> | null)?.mode === "auto-budget";
+      if (!isAutoSource) continue;
+    }
 
     const hit = (row.system_hit_summary ?? {}) as TravSystemHitSummary;
     const system = (row.system_json ?? {}) as { budgetKr?: number; targetMinPayoutKr?: number };
@@ -1022,6 +1033,7 @@ export async function backtestTravHistory(input: {
     input.toDate,
     input.autoBudget ? undefined : input.budgetKr,
     input.autoBudget ? undefined : input.targetMinPayoutKr,
+    input.autoBudget,
   );
 
   // Fast path: if the DB cache already covers this page, return immediately without
