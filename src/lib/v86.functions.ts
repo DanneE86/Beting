@@ -131,7 +131,7 @@ export const v86BacktestHistory = createServerFn({ method: "POST" })
           gameType: z.enum(["V85", "V86", "dd"]),
           fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-          maxGames: z.number().int().min(1).max(200).optional(),
+          maxGames: z.number().int().min(1).max(500).optional(),
           budgetKr: z.number().min(25).max(50_000).optional(),
           targetMinPayoutKr: z.number().min(1_000).max(10_000_000).optional(),
           autoBudget: z.boolean().optional(),

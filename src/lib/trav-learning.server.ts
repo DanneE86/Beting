@@ -959,10 +959,16 @@ async function loadResolvedBacktestPredictions(
     .gte("game_date", `${fromDate}T00:00:00`)
     .lte("game_date", `${toDate}T23:59:59`);
 
+  // Sort so live predictions come first; historical-backtest will overwrite them in the Map
+  // if both exist for the same game, ensuring the dedicated backtest version takes priority.
+  const sorted = (data ?? []).slice().sort((a, b) => {
+    const aIsBacktest = String((a.meta_json as Record<string, unknown> | null)?.source ?? "live") === "historical-backtest";
+    const bIsBacktest = String((b.meta_json as Record<string, unknown> | null)?.source ?? "live") === "historical-backtest";
+    return Number(aIsBacktest) - Number(bIsBacktest); // live first, backtest last
+  });
   const map = new Map<string, BacktestRow>();
-  for (const row of data ?? []) {
+  for (const row of sorted) {
     const meta = (row.meta_json ?? {}) as Record<string, unknown>;
-    if (String(meta.source ?? "live") !== "historical-backtest") continue;
     if (ruleIdFromMeta(meta) !== ruleId) continue;
 
     const hit = (row.system_hit_summary ?? {}) as TravSystemHitSummary;
@@ -1001,7 +1007,7 @@ export async function backtestTravHistory(input: {
   targetMinPayoutKr?: number;
   autoBudget?: boolean;
 }) {
-  const maxGames = Math.max(1, Math.min(input.maxGames ?? RECENT_TRAV_LEARNING_WINDOW, 200));
+  const maxGames = Math.max(1, Math.min(input.maxGames ?? RECENT_TRAV_LEARNING_WINDOW, 500));
   const ruleId = "rule6" as const;
   const rows: BacktestRow[] = [];
 

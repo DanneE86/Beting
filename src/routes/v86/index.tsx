@@ -72,7 +72,7 @@ const DEFAULT_TRAV_BUDGET_KR = 600;
 const DEFAULT_DD_BUDGET_KR = 150;
 const DEFAULT_TRAV_MIN_PAYOUT_KR = 30_000;
 const DEFAULT_DD_MIN_PAYOUT_KR = 1_500;
-const DEFAULT_BACKTEST_GAMES = 10;
+const DEFAULT_BACKTEST_GAMES = 50;
 
 function formatRowPrice(type: FetchSnapshot["game"]["type"] | GameOption["type"]) {
   const value = rowPriceKr(type);
@@ -1393,7 +1393,7 @@ export function TravRuleDashboardPage({
               <Input
                 type="number"
                 min={1}
-                max={200}
+                max={500}
                 value={backtestMaxGames}
                 onChange={(e) => setBacktestMaxGames(Number(e.target.value))}
                 className="border-[#1e3d2a] bg-[#111c16] text-[#e8f0ea]"
