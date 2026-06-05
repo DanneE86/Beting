@@ -70,8 +70,6 @@ function daysAgoIso(days: number) {
 
 const DEFAULT_TRAV_BUDGET_KR = 600;
 const DEFAULT_DD_BUDGET_KR = 150;
-const DEFAULT_TRAV_MIN_PAYOUT_KR = 30_000;
-const DEFAULT_DD_MIN_PAYOUT_KR = 1_500;
 const DEFAULT_BACKTEST_GAMES = 50;
 const BACKTEST_PAGE_SIZE = 5;
 
@@ -307,7 +305,6 @@ export function TravRuleDashboardPage({
   const [date, setDate] = useState(todayIso);
   const [gameId, setGameId] = useState<string>("");
   const [budgetKr, setBudgetKr] = useState(DEFAULT_TRAV_BUDGET_KR);
-  const [minPayout, setMinPayout] = useState(DEFAULT_TRAV_MIN_PAYOUT_KR);
   const [autoBudget, setAutoBudget] = useState(true);
   const [copied, setCopied] = useState(false);
   const [expandedHorse, setExpandedHorse] = useState<string | null>(null);
@@ -319,7 +316,7 @@ export function TravRuleDashboardPage({
   const [backtestAutoBudget, setBacktestAutoBudget] = useState(true);
   const [backtestRows, setBacktestRows] = useState<any[]>([]);
   const [backtestRunning, setBacktestRunning] = useState(false);
-  const backtestSessionRef = useRef<{ maxGames: number; type: string; from: string; to: string; autoBudget: boolean; budgetKr: number; minPayout: number } | null>(null);
+  const backtestSessionRef = useRef<{ maxGames: number; type: string; from: string; to: string; autoBudget: boolean; budgetKr: number } | null>(null);
 
   const gamesQ = useQuery({
     queryKey: ["v86-games", date],
@@ -345,10 +342,8 @@ export function TravRuleDashboardPage({
       setGameId(preferred.id);
       if (preferred.type === "dd") {
         setBudgetKr(DEFAULT_DD_BUDGET_KR);
-        setMinPayout(DEFAULT_DD_MIN_PAYOUT_KR);
       } else if (preferred.type === "V85" || preferred.type === "V86") {
         setBudgetKr(DEFAULT_TRAV_BUDGET_KR);
-        setMinPayout(DEFAULT_TRAV_MIN_PAYOUT_KR);
       }
     }
   }, [visibleGames, gameId]);
@@ -357,10 +352,8 @@ export function TravRuleDashboardPage({
     if (!selectedGame) return;
     if (selectedGame.type === "dd") {
       setBudgetKr((b) => (b === DEFAULT_TRAV_BUDGET_KR ? DEFAULT_DD_BUDGET_KR : b));
-      setMinPayout((m) => (m === DEFAULT_TRAV_MIN_PAYOUT_KR ? DEFAULT_DD_MIN_PAYOUT_KR : m));
     } else if (selectedGame.type === "V85" || selectedGame.type === "V86") {
       setBudgetKr((b) => (b === DEFAULT_DD_BUDGET_KR ? DEFAULT_TRAV_BUDGET_KR : b));
-      setMinPayout((m) => (m === DEFAULT_DD_MIN_PAYOUT_KR ? DEFAULT_TRAV_MIN_PAYOUT_KR : m));
     }
   }, [selectedGame?.id, selectedGame?.type]);
 
@@ -371,7 +364,7 @@ export function TravRuleDashboardPage({
           date,
           gameId: gameId || undefined,
           budgetKr: autoBudget && supportsAutoBudget ? undefined : budgetKr,
-          targetMinPayoutKr: autoBudget && supportsAutoBudget ? undefined : minPayout,
+          targetMinPayoutKr: undefined,
           autoBudget: autoBudget && supportsAutoBudget,
         },
       }),
@@ -422,7 +415,7 @@ export function TravRuleDashboardPage({
           pageSize: BACKTEST_PAGE_SIZE,
           offset,
           budgetKr: s.autoBudget ? undefined : s.budgetKr,
-          targetMinPayoutKr: s.autoBudget ? undefined : s.minPayout,
+          targetMinPayoutKr: undefined,
           autoBudget: s.autoBudget,
         },
       });
@@ -453,7 +446,6 @@ export function TravRuleDashboardPage({
       to: backtestToDate,
       autoBudget: backtestAutoBudget,
       budgetKr,
-      minPayout,
     };
     setBacktestRows([]);
     setBacktestRunning(true);
@@ -618,18 +610,6 @@ export function TravRuleDashboardPage({
               className="border-[#1e3d2a] bg-[#0c1410] text-[#e8f0ea]"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-[#7fa892]">Målutdelning (kr)</Label>
-            <Input
-              type="number"
-              min={isV85Game ? 30_000 : 1_000}
-              step={isV85Game ? 5_000 : 500}
-              value={autoBudget && supportsAutoBudget ? (isDdGame ? DEFAULT_DD_MIN_PAYOUT_KR : DEFAULT_TRAV_MIN_PAYOUT_KR) : minPayout}
-              onChange={(e) => setMinPayout(Number(e.target.value))}
-              disabled={autoBudget && supportsAutoBudget}
-              className="border-[#1e3d2a] bg-[#0c1410] text-[#e8f0ea]"
-            />
-          </div>
           <div className="flex items-end sm:col-span-2">
             <Button
               variant="outline"
@@ -653,8 +633,8 @@ export function TravRuleDashboardPage({
                 <span className="font-medium text-[#d4f5e2]">Auto-föreslå spelbudget</span>
                 <span className="block text-xs text-[#7fa892]">
                   {isDdGame
-                    ? "Modellen väljer själv 30 kr för DD och siktar på en månadsstabil profil."
-                    : "Modellen väljer själv mellan 600, 700, 800, 900 och 1000 kr och håller alltid minst 30 000 kr i målutdelning."}
+                    ? "Modellen väljer själv 30 kr för DD."
+                    : "Modellen väljer själv mellan 600, 700, 800, 900 och 1000 kr."}
                 </span>
               </span>
             </label>
@@ -712,7 +692,7 @@ export function TravRuleDashboardPage({
             )}
             {snapshot.meta?.recommendedPlay && (
               <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
-                Auto: {snapshot.meta.recommendedPlay.budgetKr} kr · mål {Math.round(snapshot.meta.recommendedPlay.targetMinPayoutKr).toLocaleString("sv-SE")} kr
+                Auto: {snapshot.meta.recommendedPlay.budgetKr} kr
               </Badge>
             )}
             {snapshot.meta?.predictionId && (
@@ -1456,7 +1436,7 @@ export function TravRuleDashboardPage({
               <span className="block text-xs text-[#7fa892]">
                 {backtestType === "dd"
                   ? "Varje DD-omgång väljer då själv 30 kr med fokus på månadsstabilitet."
-                  : "Varje omgång väljer då själv mellan 600, 700, 800, 900 och 1000 kr, med minst 30 000 kr i målutdelning."}
+                  : "Varje omgång väljer då själv mellan 600, 700, 800, 900 och 1000 kr."}
               </span>
             </span>
           </label>
@@ -1481,9 +1461,6 @@ export function TravRuleDashboardPage({
                     <span className="text-xs text-[#7fa892]">{row.gameDate ?? "—"}</span>
                     <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
                       {row.budgetKr} kr
-                    </Badge>
-                    <Badge variant="outline" className="border-[#2d6b45] text-[#b8f0d0]">
-                      mål {Math.round(row.targetMinPayoutKr ?? (row.gameType === "dd" ? DEFAULT_DD_MIN_PAYOUT_KR : 30_000)).toLocaleString("sv-SE")} kr
                     </Badge>
                   </div>
                   <p className="mt-2 text-sm text-[#b8f0d0]">
