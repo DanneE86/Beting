@@ -22,6 +22,10 @@ import {
   normalizeTravRuleId,
   travRulePromptScope,
 } from "../../v86/src/rules";
+import {
+  AUTO_DD_BUDGETS_KR,
+  AUTO_MAIN_POOL_BUDGETS_KR,
+} from "../../v86/src/system-builder";
 
 const TRAV_MODEL_VERSION = 1;
 const RECENT_TRAV_LEARNING_WINDOW = 30;
@@ -989,6 +993,13 @@ async function loadResolvedBacktestPredictions(
 
     if (budgetKr != null && system.budgetKr != null && system.budgetKr !== budgetKr) continue;
     if (targetMinPayoutKr != null && system.targetMinPayoutKr != null && system.targetMinPayoutKr !== targetMinPayoutKr) continue;
+
+    // When autoBudget is active, reject cached entries whose stored budgetKr is no longer
+    // in the current auto-budget list — e.g. old rows created when 60 kr was a valid option.
+    if (autoBudget && system.budgetKr != null) {
+      const validBudgets: readonly number[] = gameType === "dd" ? AUTO_DD_BUDGETS_KR : AUTO_MAIN_POOL_BUDGETS_KR;
+      if (!validBudgets.includes(system.budgetKr)) continue;
+    }
 
     map.set(row.game_id, {
       id: row.id,
