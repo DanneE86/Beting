@@ -1,15 +1,12 @@
-import { fetchAndelShares } from "./andelsspel";
 import {
   fetchCalendarDay,
   fetchGame,
   listAllowedGamesFromCalendar,
   resolveGame,
 } from "./atg-api";
-import { fetchExpertDataBundle, applyRule3Overlay } from "./expert-data";
-import { applyRule4Overlay, buildRule4MissingDataNotes } from "./rule4-data";
 import { defaultBudgetKr, defaultMinPayoutKr, gameTypeLabel } from "./game-types";
 import { analyzeGame } from "./analyze";
-import { DEFAULT_TRAV_RULE_ID, TRAV_RULES, defaultRuleCoverage, normalizeTravRuleId } from "./rules";
+import { TRAV_RULE, defaultRuleCoverage } from "./rules";
 import {
   AUTO_MAIN_POOL_BUDGETS_KR,
   buildDdSystemPair,
@@ -35,13 +32,11 @@ import type {
   FetchSnapshot,
   PoolGameType,
   SnapshotRaceData,
-  TravRuleId,
 } from "./types";
 
 export interface PipelineInput {
   date?: string;
   gameId?: string;
-  ruleId?: TravRuleId;
   budgetKr?: number;
   targetMinPayoutKr?: number;
   autoBudget?: boolean;
@@ -251,6 +246,8 @@ export function buildSnapshotRaceData(
     track: race.track,
     distance: race.distance,
     startMethod: race.startMethod,
+    prize: race.prize,
+    terms: race.terms,
     result: race.result,
     scratchings: race.result?.scratchings,
     pools: race.pools,
@@ -306,19 +303,12 @@ export async function buildSnapshotFromGame(
   input: Omit<PipelineInput, "date" | "gameId"> = {},
 ): Promise<FetchSnapshot> {
   const gameType = game.type as PoolGameType;
-  const ruleId = normalizeTravRuleId(input.ruleId);
-  const rule = TRAV_RULES[ruleId];
-  const isRule6 = ruleId === "rule6";
+  const rule = TRAV_RULE;
 
   const autoBudget = input.autoBudget === true;
   const floorMinPayoutKr = (() => {
-    if (gameType === "dd") {
-      const ddFloor = isRule6 ? 2_500 : defaultMinPayoutKr(gameType);
-      return Math.max(1_000, input.targetMinPayoutKr ?? ddFloor);
-    }
-    const mainFloor = isRule6 ? 60_000 : 30_000;
-    const mainDefault = isRule6 ? 90_000 : defaultMinPayoutKr(gameType);
-    return Math.max(mainFloor, input.targetMinPayoutKr ?? mainDefault);
+    if (gameType === "dd") return Math.max(1_000, input.targetMinPayoutKr ?? 2_500);
+    return Math.max(60_000, input.targetMinPayoutKr ?? 90_000);
   })();
 
   let travsportCount = 0;
@@ -332,39 +322,10 @@ export async function buildSnapshotFromGame(
     travsportCount = Object.keys(travsportIndex).length;
   }
 
-  let legs = analyzeGame(game, travsportIndex, ruleId);
+  const legs = analyzeGame(game, travsportIndex);
   const raceData = buildSnapshotRaceData(game, travsportIndex);
   const raceStartCount = raceData.reduce((sum, race) => sum + race.starts.length, 0);
-
-  let andelsspel;
-  const shouldFetchAndelsspel = (input.includeAndelsspel !== false || ruleId === "rule3") && gameType !== "dd";
-  if (shouldFetchAndelsspel) {
-    try {
-      andelsspel = await fetchAndelShares(game.id, 12);
-    } catch {
-      andelsspel = undefined;
-    }
-  }
-
-  let expertSignals: FetchSnapshot["expertSignals"];
-  let expertConsensus: FetchSnapshot["expertConsensus"];
-  let coverage = defaultRuleCoverage(ruleId);
-  let missingDataNotes: string[] | undefined;
-  let expertSources: NonNullable<NonNullable<FetchSnapshot["meta"]>["rule"]>["expertSources"];
-
-  if (ruleId === "rule3") {
-    const expertBundle = await fetchExpertDataBundle(game, andelsspel);
-    expertSignals = expertBundle.signals;
-    expertConsensus = expertBundle.consensus;
-    coverage = expertBundle.coverage;
-    missingDataNotes = expertBundle.missingDataNotes;
-    expertSources = expertBundle.sources;
-    legs = applyRule3Overlay(legs, expertBundle.consensus);
-  }
-  if (ruleId === "rule4") {
-    legs = applyRule4Overlay(legs, raceData);
-    missingDataNotes = buildRule4MissingDataNotes(raceData);
-  }
+  const coverage = defaultRuleCoverage();
 
   // Bana-specifika justeringar för DD baserade på historisk prestanda:
   // Boden/Romme: favoriter vinner alltid → pool betalar knappt → kräv mer värde i picks.
@@ -381,11 +342,7 @@ export async function buildSnapshotFromGame(
       ? recommendDdPlay(game.id, gameType, legs, trackAdjustedFloorPayout)
       : recommendMainPoolPlay(game.id, gameType, legs, floorMinPayoutKr)
     : null;
-  const budgetKr =
-    recommendedPlay?.budgetKr ??
-    (AUTO_MAIN_POOL_BUDGETS_KR.includes((input.budgetKr ?? defaultBudgetKr(gameType)) as (typeof AUTO_MAIN_POOL_BUDGETS_KR)[number])
-      ? (input.budgetKr ?? defaultBudgetKr(gameType))
-      : defaultBudgetKr(gameType));
+  const budgetKr = recommendedPlay?.budgetKr ?? input.budgetKr ?? defaultBudgetKr(gameType);
   const targetMinPayoutKr = recommendedPlay?.targetMinPayoutKr ?? trackAdjustedFloorPayout;
   const builtSystem =
     recommendedPlay?.system ??
@@ -416,15 +373,12 @@ export async function buildSnapshotFromGame(
     raceData,
     system,
     systemAlt,
-    andelsspel,
-    expertSignals,
-    expertConsensus,
     meta: {
       poolStartLabel: formatStartLabel(firstRaceStart),
       poolWeekday: weekdayFromIso(firstRaceStart),
       isSaturdayRound: isSaturdayStart(firstRaceStart),
       isWednesdayRound: isWednesdayStart(firstRaceStart),
-      analysisModel: `${rule.label} · checklist-v1 + Travsport (${travsportCount} hästar)`,
+      analysisModel: `${rule.label} · checklist-v2 + Travsport (${travsportCount} hästar)`,
       travsportHorses: travsportCount,
       fullRaceDataStored: true,
       fullRaceDataRaces: raceData.length,
@@ -434,13 +388,10 @@ export async function buildSnapshotFromGame(
         label: rule.label,
         version: rule.version,
         usesMarketData: rule.usesMarketData,
-        partialExpertMode:
-          ruleId === "rule3" ? coverage.some((group) => group.status !== "available") : false,
-        expertSourceCount: expertSources?.length ?? 0,
-        expertSignalCount: expertSignals?.length ?? 0,
-        expertSources,
+        partialExpertMode: false,
+        expertSourceCount: 0,
+        expertSignalCount: 0,
         coverage,
-        missingDataNotes,
       },
       recommendedPlay: recommendedPlay
         ? {

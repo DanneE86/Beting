@@ -1,7 +1,8 @@
 import type { AtgRace, AtgStart } from "../types";
+import { normalizeTrackCondition, trackNameToCode } from "../travsport/parse";
 import type { TravsportHorseProfile } from "../travsport/types";
 import type { ChecklistItem, HorseDriverScores } from "./types";
-import { distanceBand, pctFromAtg, recordToSeconds } from "./utils";
+import { distanceBand, distanceClass, distanceCorrectionSec, pctFromAtg, recordToSeconds, representativeMeters } from "./utils";
 
 type YearStat = {
   starts?: number;
@@ -20,16 +21,19 @@ function recentPlaces(y2025?: YearStat, y2026?: YearStat): number[] {
   return places.slice(-6);
 }
 
+/** EWMA-baserad formtrend: vikterar de senaste starterna tyngre. */
+function ewmaPlacement(places: number[], alpha = 0.38): number {
+  if (!places.length) return 5;
+  return places.reduce((ewma, p) => alpha * p + (1 - alpha) * ewma);
+}
+
 function formTrendFromPlaces(places: number[]): HorseDriverScores["formTrend"] {
   if (places.length < 3) return "okänd";
-  const recent = places.slice(-3);
-  const older = places.slice(-6, -3);
-  const avg = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
-  const r = avg(recent);
-  const o = avg(older);
-  if (r < o - 0.8) return "stigande";
-  if (r > o + 0.8) return "nedåtgående";
-  if (recent.every((p) => p <= 3)) return "toppad";
+  const recent3 = ewmaPlacement(places.slice(-3));
+  const older3 = ewmaPlacement(places.slice(-6, -3).length >= 2 ? places.slice(-6, -3) : places);
+  if (recent3 < older3 - 0.6) return "stigande";
+  if (recent3 > older3 + 0.6) return "nedåtgående";
+  if (places.slice(-3).every((p) => p <= 3)) return "toppad";
   return "okänd";
 }
 
@@ -53,6 +57,29 @@ function restScoreFromDays(days: number | null): number {
   if (days > 45) return 0.45;
   if (days < 7) return 0.55;
   return 0.6;
+}
+
+function parseFirstPrizeKr(prize?: string): number | null {
+  if (!prize) return null;
+  const m = prize.match(/Pris:\s*([\d.]+)/);
+  if (!m) return null;
+  const v = parseFloat(m[1].replace(/\./g, ""));
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
+function parseClassRange(terms?: string[]): { lower: number; upper: number } | null {
+  if (!terms?.length) return null;
+  for (const t of terms) {
+    const m = t.match(/([\d.]+)\s*[-–]\s*([\d.]+)\s*kr/);
+    if (m) {
+      const lower = parseFloat(m[1].replace(/\./g, ""));
+      const upper = parseFloat(m[2].replace(/\./g, ""));
+      if (Number.isFinite(lower) && Number.isFinite(upper) && upper > lower) {
+        return { lower, upper };
+      }
+    }
+  }
+  return null;
 }
 
 function normalizeStartMethod(method?: string): "auto" | "volte" | "okänd" {
@@ -153,22 +180,33 @@ export function scoreHorseChecklist(
   const formTrend = travsport?.formTrend ?? formTrendFromPlaces(tsPlaces.length >= 3 ? tsPlaces : places);
   const highlights: string[] = [];
 
+  // EWMA-viktad placeringspoäng: senaste starterna väger tyngre
+  function ewmaScore(ps: number[], alpha = 0.38): number {
+    if (!ps.length) return 0.5;
+    return ps.reduce((ewma, p) => alpha * Math.max(0, 1 - (p - 1) / 8) + (1 - alpha) * ewma);
+  }
   const recentPlaceScore =
     tsPlaces.length > 0
-      ? tsPlaces.reduce((s, p) => s + Math.max(0, 1 - (p - 1) / 8), 0) / tsPlaces.length
+      ? ewmaScore(tsPlaces)
       : places.length > 0
-        ? places.reduce((s, p) => s + Math.max(0, 1 - (p - 1) / 8), 0) / places.length
+        ? ewmaScore(places)
         : 0.5;
 
+  // Individuell startdistans = basdistans + eventuellt tillägg
   const raceDist = race.distance ?? start.distance;
+  const startDist = start.distance ?? raceDist;
+  const tillagg = raceDist && startDist ? startDist - raceDist : 0;
   const band = distanceBand(raceDist);
+  const distCls = distanceClass(raceDist);
   const horseBand = h?.record?.distance ?? life?.records?.[0]?.distance;
-  const distMatch =
-    horseBand === band ||
-    (horseBand === "short" && band === "short") ||
-    (horseBand === "medium" && band !== "long") ||
-    (horseBand === "long" && band === "long");
-  const distScore = distMatch ? 0.8 : horseBand ? 0.45 : 0.5;
+
+  // Granulär distansmatch: exakt band + avstånd inom bandet
+  const distMatch = horseBand === band;
+  const distNearMatch =
+    !distMatch &&
+    ((horseBand === "medium" && band === "long" && (raceDist ?? 0) < 2400) ||
+      (horseBand === "long" && band === "medium" && (raceDist ?? 0) > 2000));
+  const distScore = distMatch ? 0.82 : distNearMatch ? 0.62 : horseBand ? 0.40 : 0.5;
 
   const raceMethod = (race as { startMethod?: string }).startMethod ?? "auto";
   const horseMethod = h?.record?.startMethod ?? "auto";
@@ -192,6 +230,11 @@ export function scoreHorseChecklist(
     const historyWeight = laneHistory.exactStarts >= 2 ? 0.6 : 0.45;
     laneScore = laneScore * (1 - historyWeight) + laneHistory.score * historyWeight;
   }
+  // Tilläggsstraff: varje 20m extra startsträcka ≈ ett spår längre bak
+  if (tillagg > 0) {
+    const tillaggPenalty = Math.min(0.20, (tillagg / 20) * 0.05);
+    laneScore = Math.max(0.20, laneScore - tillaggPenalty);
+  }
 
   const trackName = race.track?.name ?? "";
   const homeTrack = h?.homeTrack?.name ?? "";
@@ -206,7 +249,18 @@ export function scoreHorseChecklist(
   }
 
   const condition = (race.track as { condition?: string })?.condition;
-  const surfaceScore = condition ? (condition === "light" ? 0.6 : 0.55) : 0.5;
+  const normalizedCondition = condition ? normalizeTrackCondition(condition) : null;
+  const surfaceMatch = normalizedCondition
+    ? travsport?.surfaceHistory?.find((s) => s.condition === normalizedCondition)
+    : null;
+  const surfaceScore =
+    surfaceMatch && surfaceMatch.starts >= 3
+      ? Math.min(0.95, 0.35 + surfaceMatch.winRate * 1.8)
+      : condition
+        ? condition === "light"
+          ? 0.6
+          : 0.55
+        : 0.5;
 
   const eps = life?.earningsPerStart ?? 0;
   const fieldEps = fieldStarts
@@ -221,7 +275,15 @@ export function scoreHorseChecklist(
 
   const trainer = h?.trainer;
   const trWin = pctFromAtg(trainer?.statistics?.years?.["2026"]?.winPercentage);
-  const trainerScore = Math.min(1, trWin / 18);
+  const currentTrackCode = trackNameToCode(trackName);
+  const trainerTrackStat = currentTrackCode
+    ? travsport?.trainerTrackStats?.find((t) => t.trackCode === currentTrackCode)
+    : null;
+  const trainerGeneralScore = Math.min(1, trWin / 18);
+  const trainerScore =
+    trainerTrackStat && trainerTrackStat.starts >= 3
+      ? trainerGeneralScore * 0.45 + Math.min(1, 0.30 + trainerTrackStat.winRate * 1.8) * 0.55
+      : trainerGeneralScore;
 
   const shoes = h?.shoes;
   const equipChanged =
@@ -251,23 +313,62 @@ export function scoreHorseChecklist(
     age === 9 ? "veteran" :
     "sen karriär, tydlig avmattning";
 
-  const recentKmTimes = travsport?.recentStarts
-    ?.map((s) => s.kmTimeSeconds)
-    .filter((t): t is number => t != null)
-    .slice(0, 3) ?? [];
-  const usingRecentTimes = recentKmTimes.length >= 2;
+  // Km-tider från Travsport, distanskorrigerade mot löpets distans (inkl. tillägg)
+  const effectiveRaceDist = startDist ?? raceDist; // hästens faktiska distans i detta lopp
+  const tsStarts = travsport?.recentStarts?.filter(
+    (s) => s.kmTimeSeconds != null && !s.galloped && !s.disqualified,
+  ) ?? [];
+
+  // Föredra starter på liknande distans (±500 m); annars alla med korrektion
+  const similarDistStarts = tsStarts.filter(
+    (s) => s.distance != null && Math.abs(s.distance - (effectiveRaceDist ?? 0)) <= 500,
+  );
+  const useDistFiltered = similarDistStarts.length >= 2;
+  const kmTimeBasis = useDistFiltered ? similarDistStarts : tsStarts;
+
+  // Tillämpa distansskorrektion: +0,4 s/km om källdistansen är kortare än loppet
+  const correctedKmTimes = kmTimeBasis
+    .map((s) => {
+      const raw = s.kmTimeSeconds!;
+      if (!s.distance || !effectiveRaceDist) return raw;
+      return raw + distanceCorrectionSec(s.distance, effectiveRaceDist);
+    })
+    .slice(0, 5);
+
+  const usingRecentTimes = correctedKmTimes.length >= 2;
   const recentAvgTime = usingRecentTimes
-    ? recentKmTimes.reduce((a, b) => a + b, 0) / recentKmTimes.length
+    ? correctedKmTimes.reduce((ewma, t) => 0.45 * t + 0.55 * ewma)
     : null;
-  const recordTime = recordToSeconds(h?.record?.time);
+
+  // Fallback: ATG-rekord med bandbaserad distanskorrektion
+  const recordTime = (() => {
+    const raw = recordToSeconds(h?.record?.time);
+    if (raw == null || !raceDist) return raw;
+    const srcMeters = representativeMeters(horseBand);
+    return raw + distanceCorrectionSec(srcMeters, raceDist);
+  })();
+
   const myTime = recentAvgTime ?? recordTime;
+
+  // Fälttider: ATG-rekord distanskorrigerade per häst
   const fieldTimes = fieldStarts
-    .map((s) => recordToSeconds(s.horse?.record?.time))
-    .filter((t): t is number => t != null);
-  const bestTime = fieldTimes.length ? Math.min(...fieldTimes) : null;
+    .map((s) => {
+      const raw = recordToSeconds(s.horse?.record?.time);
+      if (raw == null || !raceDist) return raw;
+      const srcBand = s.horse?.record?.distance ?? life?.records?.[0]?.distance;
+      const srcMeters = representativeMeters(srcBand);
+      return raw + distanceCorrectionSec(srcMeters, raceDist);
+    })
+    .filter((t): t is number => t != null)
+    .sort((a, b) => a - b);
+
+  // Median ger jämnare kalibrering än bästa häst
+  const medianTime = fieldTimes.length > 0
+    ? fieldTimes[Math.floor((fieldTimes.length - 1) / 2)]
+    : null;
   const speedScore =
-    myTime != null && bestTime != null
-      ? Math.min(1, Math.max(0.2, 1 - (myTime - bestTime) / 4))
+    myTime != null && medianTime != null
+      ? Math.min(1, Math.max(0.2, 0.5 + (medianTime - myTime) / 6))
       : 0.5;
 
   const starts2026 = y2026?.starts ?? 0;
@@ -278,6 +379,84 @@ export function scoreHorseChecklist(
       : starts2026 >= 12
         ? 0.5
         : 0.6;
+
+  // Loppklass: jämför hästen mot klassintervallet i loppets villkor
+  const firstPrizeKr = parseFirstPrizeKr(race.prize);
+  const classRange = parseClassRange(race.terms);
+  const lifeStarts = life?.starts ?? 0;
+  const totalEarningsKr = lifeStarts > 0 ? (eps / 100) * lifeStarts : null;
+  let raceQualityScore = 0.5;
+  let raceQualityNote = "Klassdata saknas";
+  if (classRange && totalEarningsKr != null) {
+    const pos = Math.max(0, Math.min(1, (totalEarningsKr - classRange.lower) / (classRange.upper - classRange.lower)));
+    raceQualityScore = Math.min(0.88, Math.max(0.25, 0.3 + pos * 0.58));
+    const posLabel = pos >= 0.75 ? "topp av klass" : pos >= 0.4 ? "mittfältet" : "ny i klassen";
+    raceQualityNote = `Totalt ~${Math.round(totalEarningsKr / 1000)}k kr · klass ${Math.round(classRange.lower / 1000)}k–${Math.round(classRange.upper / 1000)}k kr (${posLabel})`;
+    if (firstPrizeKr) raceQualityNote += ` · 1:a pris ${Math.round(firstPrizeKr / 1000)}k kr`;
+  } else if (firstPrizeKr) {
+    raceQualityScore = 0.5;
+    raceQualityNote = `1:a pris ${Math.round(firstPrizeKr / 1000)}k kr`;
+  }
+
+  // Uthållighet på lång distans (≥ 2200 m) — ultralong (≥ 2600 m) hårdare krav
+  const isLongDist = distCls === "long" || distCls === "ultralong";
+  const isUltraLong = distCls === "ultralong";
+  const tempoStyle = travsport?.tempoTripProfile?.style;
+  let longDistScore = 0.5;
+  let longDistNote = "Ej långdistans";
+  if (isLongDist) {
+    const sampleSize = travsport?.tempoTripProfile?.sampleSize ?? 0;
+    const closerBonus = isUltraLong ? 0.90 : 0.82;
+    const versatileScore = isUltraLong ? 0.72 : 0.70;
+    const frontPenalty = isUltraLong ? 0.22 : 0.32;
+    const unknownBase = sampleSize >= 3 ? 0.50 : 0.52;
+    const distLabel = isUltraLong ? "ultra-lång distans (≥2600m)" : "lång distans";
+
+    if (tempoStyle === "closer") {
+      longDistScore = closerBonus;
+      longDistNote = `Avslutare — gynnas av ${distLabel}`;
+    } else if (tempoStyle === "versatile") {
+      longDistScore = versatileScore;
+      longDistNote = `Flexibel löpstil — klarar ${distLabel}`;
+    } else if (tempoStyle === "front") {
+      longDistScore = frontPenalty;
+      longDistNote = `Front-löpare — uthållighetsrisk på ${distLabel}`;
+    } else {
+      longDistScore = unknownBase;
+      longDistNote = sampleSize >= 3 ? `Oklar löpstil på ${distLabel}` : `För lite data — uthållighet okänd (${distLabel})`;
+    }
+
+    // Bonus om hästen har bekräftade rekord på lång/ultralång distans
+    const hasLongRecord = (life?.records ?? []).some((r) => r.distance === "long");
+    if (hasLongRecord) {
+      longDistScore = Math.min(0.92, longDistScore + 0.08);
+      longDistNote += " · bekräftat rekord på lång dist.";
+    }
+
+    // Travsport: kontrollera om hästen har bra resultat på liknande distans
+    const longDistStarts = tsStarts.filter((s) => s.distance != null && s.distance >= 2200);
+    if (longDistStarts.length >= 3) {
+      const longDistWins = longDistStarts.filter((s) => s.placement === 1).length;
+      const longDistTop3 = longDistStarts.filter((s) => (s.placement ?? 99) <= 3).length;
+      const winRate = longDistWins / longDistStarts.length;
+      if (winRate >= 0.25) {
+        longDistScore = Math.min(0.92, longDistScore + 0.06);
+        longDistNote += ` · ${longDistWins}/${longDistStarts.length} segrar ≥2200m`;
+      } else if (longDistTop3 / longDistStarts.length < 0.25 && longDistStarts.length >= 4) {
+        longDistScore = Math.max(0.20, longDistScore - 0.08);
+        longDistNote += ` · svag historik ≥2200m (${longDistTop3}/${longDistStarts.length} topp-3)`;
+      } else {
+        longDistNote += ` · ${longDistTop3}/${longDistStarts.length} topp-3 ≥2200m`;
+      }
+    }
+
+    // Gallopstraff: hög galoppfara på lång distans är allvarligare
+    if (travsport?.gallopProfile?.riskLevel === "hög") {
+      const penalty = isUltraLong ? 0.16 : 0.12;
+      longDistScore = Math.max(0.15, longDistScore - penalty);
+      longDistNote += ` · hög galoppfara på ${isUltraLong ? "ultra-lång" : "lång"} dist`;
+    }
+  }
 
   if (age === 4 || age === 5) highlights.push(`Primålder (${age} år) — toppar fysiskt`);
   else if (age >= 9) highlights.push(`Veteran (${age} år) — avtagande kapacitet`);
@@ -299,8 +478,18 @@ export function scoreHorseChecklist(
   if (distMatch) highlights.push("Distans passar");
   if (trWin >= 15) highlights.push(`Tränare i form (${trWin.toFixed(0)}% vinst 2026)`);
   if (equipChanged) highlights.push("Utrustning ändrad");
-  if (myTime != null && bestTime != null && myTime <= bestTime + 0.3)
+  if (myTime != null && medianTime != null && myTime <= medianTime - 0.5)
     highlights.push("Snabb km-tid i fältet");
+  if (classRange && totalEarningsKr != null) {
+    const pos = (totalEarningsKr - classRange.lower) / (classRange.upper - classRange.lower);
+    if (pos >= 0.8) highlights.push("Topp av klassen — klassövertag");
+    else if (pos < 0.2) highlights.push("Ny i klassen — klassprövning");
+  }
+  if (isUltraLong && tempoStyle === "front") highlights.push("Front-löpare på ultra-lång distans (≥2600m) — hög uthållighetsrisk");
+  else if (isLongDist && tempoStyle === "front") highlights.push("Front-löpare på lång distans — uthållighetsrisk");
+  if (isUltraLong && tempoStyle === "closer") highlights.push("Avslutare — starkt gynnad på ultra-lång distans");
+  else if (isLongDist && tempoStyle === "closer") highlights.push("Avslutare gynnas på lång distans");
+  if (tillagg > 0) highlights.push(`Tillägg ${tillagg}m — startar längre bak`);
 
   const items: ChecklistItem[] = [
     {
@@ -333,9 +522,9 @@ export function scoreHorseChecklist(
       category: "häst",
       label: "Distansanpassning",
       score: distScore,
-      weight: 1.1,
+      weight: isLongDist ? 1.6 : 1.1,
       available: !!raceDist,
-      note: `${raceDist ?? "?"} m (${band}), häst: ${horseBand ?? "?"}`,
+      note: `${startDist ?? raceDist ?? "?"}m${tillagg > 0 ? ` (+${tillagg}m tillägg)` : ""} (${distCls}), häst: ${horseBand ?? "?"}`,
     },
     {
       id: "lane_start",
@@ -344,7 +533,7 @@ export function scoreHorseChecklist(
       score: laneScore,
       weight: 0.9,
       available: true,
-      note: `Spår ${post}, ${raceMethod}${isVolt ? " (volt)" : " (auto)"}${laneHistory ? ` · ${laneHistory.note}` : ""}`,
+      note: `Spår ${post}, ${raceMethod}${isVolt ? " (volt)" : " (auto)"}${tillagg > 0 ? ` +${tillagg}m tillägg` : ""}${laneHistory ? ` · ${laneHistory.note}` : ""}`,
     },
     {
       id: "track",
@@ -364,14 +553,27 @@ export function scoreHorseChecklist(
       score: surfaceScore,
       weight: 0.5,
       available: !!condition,
-      note: condition ? `Banan: ${condition}` : "Ej rapporterat i API",
+      note: surfaceMatch && surfaceMatch.starts >= 3
+        ? `Banan: ${condition} · häst ${surfaceMatch.wins}/${surfaceMatch.starts} segrar (${Math.round(surfaceMatch.winRate * 100)}%)`
+        : condition
+          ? `Banan: ${condition} (för lite historik)`
+          : "Ej rapporterat i API",
+    },
+    {
+      id: "race_quality",
+      category: "häst",
+      label: "Loppklass & klassposition",
+      score: raceQualityScore,
+      weight: 1.1,
+      available: classRange != null || firstPrizeKr != null,
+      note: raceQualityNote,
     },
     {
       id: "class",
       category: "häst",
       label: "Klassnivå (intjänat/start)",
       score: classScore,
-      weight: 0.9,
+      weight: 0.7,
       available: eps > 0,
       note: `EPS ${(eps / 100).toFixed(0)} vs fält median ${(medianEps / 100).toFixed(0)}`,
     },
@@ -382,7 +584,9 @@ export function scoreHorseChecklist(
       score: trainerScore,
       weight: 1,
       available: trWin > 0,
-      note: `${trainer?.shortName ?? "?"}: ${trWin.toFixed(1)}% vinst`,
+      note: trainerTrackStat && trainerTrackStat.starts >= 3
+        ? `${trainer?.shortName ?? "?"}: ${trWin.toFixed(1)}% vinst · ${trackName} ${trainerTrackStat.wins}/${trainerTrackStat.starts} (${Math.round(trainerTrackStat.winRate * 100)}%)`
+        : `${trainer?.shortName ?? "?"}: ${trWin.toFixed(1)}% vinst (ingen banspec. historik)`,
     },
     {
       id: "equipment",
@@ -409,11 +613,16 @@ export function scoreHorseChecklist(
       category: "häst",
       label: "Km-tid vs fält",
       score: speedScore,
-      weight: 1,
+      weight: 1.5,
       available: myTime != null,
-      note: myTime != null
-        ? `${usingRecentTimes ? `Snitt ${recentKmTimes.length} st` : "Rek"} ${myTime.toFixed(1)}s`
-        : "Saknar km-tid",
+      note: (() => {
+        if (myTime == null) return "Saknar km-tid";
+        const src = usingRecentTimes
+          ? `Snitt ${correctedKmTimes.length} st${useDistFiltered ? ` (dist-filtrerat)` : " (dist-korr)"}`
+          : "Rek (dist-korr)";
+        const medStr = medianTime != null ? ` vs fält ${medianTime.toFixed(1)}s` : "";
+        return `${src}: ${myTime.toFixed(1)}s${medStr}`;
+      })(),
     },
     {
       id: "rest",
@@ -428,6 +637,26 @@ export function scoreHorseChecklist(
           : "Proxy via ATG starter 2026",
     },
     {
+      id: "tempo_trip",
+      category: "häst",
+      label: "Tempo/trip-profil",
+      score: travsport?.tempoTripProfile?.profileScore ?? 0.5,
+      weight: isLongDist ? 1.3 : 0.85,
+      available: (travsport?.tempoTripProfile?.sampleSize ?? 0) >= 3,
+      note: travsport?.tempoTripProfile
+        ? `${travsport.tempoTripProfile.style}: ${travsport.tempoTripProfile.note}`
+        : "Ingen profildata",
+    },
+    {
+      id: "longdist_endurance",
+      category: "häst",
+      label: "Uthållighet (lång distans)",
+      score: longDistScore,
+      weight: isLongDist ? 1.2 : 0,
+      available: isLongDist,
+      note: longDistNote,
+    },
+    {
       id: "gallop_risk",
       category: "häst",
       label: "Galopp/stabilitetsrisk",
@@ -440,6 +669,9 @@ export function scoreHorseChecklist(
 
   if (travsport?.gallopProfile?.riskLevel === "hög") {
     highlights.push(`Galoppfara hög (${Math.round(travsport.gallopProfile.gallopRate * 100)}%)`);
+  }
+  if (travsport?.tempoTripProfile && travsport.tempoTripProfile.sampleSize >= 3 && travsport.tempoTripProfile.profileScore >= 0.72) {
+    highlights.push(`Stark tempo/trip-match (${travsport.tempoTripProfile.style})`);
   }
 
   return {

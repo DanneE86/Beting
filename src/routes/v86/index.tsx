@@ -11,7 +11,6 @@ import {
   type FetchSnapshot,
   type GameOption,
 } from "@/lib/v86.functions";
-import type { TravRuleId } from "../../../v86/src/rules";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,6 +31,7 @@ import { toast } from "sonner";
 import { rowPriceKr } from "../../../v86/src/game-types";
 import { LegScratchedHorses } from "@/components/LegScratchedHorses";
 import { SystemLegPicksWithOdds } from "@/components/SystemLegPicks";
+import { HorseScoreMatrix } from "@/components/HorseScoreMatrix";
 import {
   BiggestRiskNote,
   LegHitPctBadge,
@@ -44,22 +44,18 @@ export const Route = createFileRoute("/v86/")({
 });
 
 export type TravRuleDashboardProps = {
-  ruleId: TravRuleId;
   title: string;
   description: string;
   badgeText?: string;
   extraIntro?: ReactNode;
 };
 
-const ACTIVE_RULE_ID: TravRuleId = "rule6";
-
 function RuleSelectablePage() {
   return (
     <TravRuleDashboardPage
-      ruleId={ACTIVE_RULE_ID}
-      title="Regel 6: Förbättrad plus"
+      title="Förbättrad plusstrategi"
       description="Optimerar budget och utdelningsmål mot jämnare månadsresultat med chans på storvinster."
-      badgeText="Aktiv regel"
+      badgeText="Aktiv"
     />
   );
 }
@@ -301,7 +297,6 @@ function HorseAnalysisTables({
 }
 
 export function TravRuleDashboardPage({
-  ruleId,
   title,
   description,
   badgeText = "Regelprofil",
@@ -371,7 +366,6 @@ export function TravRuleDashboardPage({
         data: {
           date,
           gameId: gameId || undefined,
-          ruleId,
           budgetKr: autoBudget && supportsAutoBudget ? undefined : budgetKr,
           targetMinPayoutKr: autoBudget && supportsAutoBudget ? undefined : minPayout,
           autoBudget: autoBudget && supportsAutoBudget,
@@ -384,18 +378,17 @@ export function TravRuleDashboardPage({
       } else {
         toast.success("Analys klar och sparad i historiken");
       }
-      queryClient.invalidateQueries({ queryKey: ["trav-history", historyFilterType, ruleId] });
+      queryClient.invalidateQueries({ queryKey: ["trav-history", historyFilterType] });
     },
   });
 
   const historyQ = useQuery({
-    queryKey: ["trav-history", historyFilterType, ruleId],
+    queryKey: ["trav-history", historyFilterType],
     queryFn: () =>
       v86History({
         data: {
           limit: 16,
           gameType: historyFilterType,
-          ruleId,
         },
       }),
   });
@@ -409,7 +402,7 @@ export function TravRuleDashboardPage({
       } else {
         toast.info("Inga nya avgjorda omgångar att resolve:a just nu");
       }
-      queryClient.invalidateQueries({ queryKey: ["trav-history", historyFilterType, ruleId] });
+      queryClient.invalidateQueries({ queryKey: ["trav-history", historyFilterType] });
     },
   });
 
@@ -418,7 +411,6 @@ export function TravRuleDashboardPage({
       v86BacktestHistory({
         data: {
           gameType: backtestType,
-          ruleId,
           fromDate: backtestFromDate,
           toDate: backtestToDate,
           maxGames: backtestMaxGames,
@@ -430,7 +422,7 @@ export function TravRuleDashboardPage({
     onError: (e: Error) => toast.error(e.message),
     onSuccess: (res) => {
       toast.success(`Backtest klar: ${res.backtested} omgångar`);
-      queryClient.invalidateQueries({ queryKey: ["trav-history", historyFilterType, ruleId] });
+      queryClient.invalidateQueries({ queryKey: ["trav-history", historyFilterType] });
     },
   });
 
@@ -445,7 +437,7 @@ export function TravRuleDashboardPage({
     () => (snapshot ? formatMarks(snapshot) : ""),
     [snapshot],
   );
-  const showMarketView = ruleId !== "rule1";
+  const showMarketView = true;
   const dataModelRows = [
     {
       label: "Form och nivå",
@@ -471,10 +463,10 @@ export function TravRuleDashboardPage({
   const activePrompt = useMemo(() => {
     const currentType = snapshot?.game.type ?? selectedGame?.type;
     if (currentType !== "V85") return null;
-    const promptScope = `trav:${currentType}:${ruleId}`;
+    const promptScope = `trav:${currentType}:rule6`;
     const fromHistory = historyQ.data?.prompts?.find((item) => item.game_type === promptScope)?.prompt_text;
     return (fromHistory ?? snapshot?.meta?.learningPromptText ?? "").trim() || null;
-  }, [historyQ.data?.prompts, ruleId, selectedGame?.type, snapshot?.game.type, snapshot?.meta?.learningPromptText]);
+  }, [historyQ.data?.prompts, selectedGame?.type, snapshot?.game.type, snapshot?.meta?.learningPromptText]);
 
   useEffect(() => {
     setShowAllLegs({});
@@ -627,7 +619,7 @@ export function TravRuleDashboardPage({
                 <span className="font-medium text-[#d4f5e2]">Auto-föreslå spelbudget</span>
                 <span className="block text-xs text-[#7fa892]">
                   {isDdGame
-                    ? "Modellen väljer själv mellan 50 och 60 kr för DD och siktar på en månadsstabil profil."
+                    ? "Modellen väljer själv 30 kr för DD och siktar på en månadsstabil profil."
                     : "Modellen väljer själv mellan 600, 700, 800, 900 och 1000 kr och håller alltid minst 30 000 kr i målutdelning."}
                 </span>
               </span>
@@ -1191,6 +1183,34 @@ export function TravRuleDashboardPage({
             })}
           </div>
 
+          <Card className="border-[#2d6b45] bg-[#13261c] p-4 shadow-none">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-[#d4f5e2]">
+                  Poängsystem — häst &amp; kusk
+                </h2>
+                <p className="mt-1 max-w-2xl text-sm text-[#b8f0d0]">
+                  Varje häst ratas på 24 parametrar. Häst 62% + Kusk 38% = Totalpoäng. Stjärnan (★) är modellens val per lopp.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-x-6 gap-y-1 text-[10px] text-[#7fa892]">
+                <div>
+                  <span className="font-semibold text-[#5ec98a]">Häst (16 par.):</span>{" "}
+                  Km-tid · Senaste starter · Distans · Loppklass · Formkurva · Tempo/trip ·
+                  Galopprisk · Spår · Bana · Klassnivå · Uthållighet · Restitution ·
+                  Tränarform · Utrustning · Ålder · Underlag
+                </div>
+                <div>
+                  <span className="font-semibold text-[#5ec98a]">Kusk (8 par.):</span>{" "}
+                  Form · Formtrend · Form m. häst · Körstil · Spurter · Bana · Storseger · Tränare
+                </div>
+              </div>
+            </div>
+            <div className="mt-4">
+              <HorseScoreMatrix legs={snapshot.legs} />
+            </div>
+          </Card>
+
           <Card className="border-[#1e3d2a] bg-[#111c16] p-4 shadow-none">
             <div className="mb-2">
               <h3 className="font-medium text-[#d4f5e2]">Prognostabell för alla hästar</h3>
@@ -1401,7 +1421,7 @@ export function TravRuleDashboardPage({
               <span className="font-medium text-[#d4f5e2]">Auto-föreslå budget i backtest</span>
               <span className="block text-xs text-[#7fa892]">
                 {backtestType === "dd"
-                  ? "Varje DD-omgång väljer då själv mellan 50 och 60 kr med fokus på månadsstabilitet."
+                  ? "Varje DD-omgång väljer då själv 30 kr med fokus på månadsstabilitet."
                   : "Varje omgång väljer då själv mellan 600, 700, 800, 900 och 1000 kr, med minst 30 000 kr i målutdelning."}
               </span>
             </span>

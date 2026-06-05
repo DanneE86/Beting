@@ -19,6 +19,30 @@ export function distanceBand(meters?: number): "short" | "medium" | "long" {
   return "long";
 }
 
+export function distanceClass(meters?: number): "short" | "medium" | "long" | "ultralong" {
+  if (!meters) return "medium";
+  if (meters < 1700) return "short";
+  if (meters < 2200) return "medium";
+  if (meters < 2600) return "long";
+  return "ultralong";
+}
+
+/** Representativt metertal per ATG-distansband, används för km-tidskorrigering. */
+export function representativeMeters(band?: string): number {
+  if (band === "short") return 1640;
+  if (band === "long") return 2640;
+  return 2140; // medium default
+}
+
+/**
+ * Sekundertillägg att lägga till ett km-tidsrekord när källdistansen skiljer sig från loppet.
+ * Hästar presterar ~0,4 s/km sämre km-tid per extra kilometer (uthållighetseffekt).
+ * Negativt värde = hästen gick rekordet på längre distans → bonus (stayer-effekt).
+ */
+export function distanceCorrectionSec(sourceMeters: number, raceMeters: number): number {
+  return ((raceMeters - sourceMeters) / 1000) * 0.4;
+}
+
 export function weightedAverage(
   items: { score: number; weight: number; available: boolean }[],
 ): number {

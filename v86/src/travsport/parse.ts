@@ -1,4 +1,12 @@
-import type { TravsportHorseProfile, TravsportStartRow } from "./types";
+import type {
+  TravsportDriverTripProfile,
+  TravsportHorseProfile,
+  TravsportMethodBucket,
+  TravsportMethodSplit,
+  TravsportStartRow,
+  TravsportSurfaceStat,
+  TravsportTrackStat,
+} from "./types";
 
 function parseKmTime(display: string | undefined, sortValue?: number): number | null {
   if (!display || display === "a" || display === "?") return null;
@@ -191,6 +199,50 @@ function buildTempoTripProfile(starts: TravsportStartRow[]) {
   };
 }
 
+function buildDriverTripProfile(
+  pairRows: TravsportStartRow[],
+): TravsportDriverTripProfile | undefined {
+  if (pairRows.length === 0) return undefined;
+
+  const backRows = pairRows.filter((r) => (r.startPosition ?? 0) >= 8 && r.placement != null);
+  const frontRows = pairRows.filter((r) => (r.startPosition ?? 99) <= 4 && r.placement != null);
+
+  const backWins = backRows.filter((r) => r.placement === 1).length;
+  const backTop3 = backRows.filter((r) => (r.placement ?? 99) <= 3).length;
+  const frontWins = frontRows.filter((r) => r.placement === 1).length;
+  const frontTop3 = frontRows.filter((r) => (r.placement ?? 99) <= 3).length;
+
+  // Favorit-proxy: odds ≤ 2.5 (ungefär 40%+ på strecken)
+  const favRows = pairRows.filter((r) => {
+    const o = parseFloat(r.odds ?? "");
+    return !isNaN(o) && o > 0 && o <= 2.5;
+  });
+  const favWins = favRows.filter((r) => r.placement === 1).length;
+
+  // Klassificera stil om vi har tillräcklig data
+  let driverStyle: TravsportDriverTripProfile["driverStyle"] = "okänd";
+  if (backRows.length >= 3 || frontRows.length >= 3) {
+    const backRate = backRows.length > 0 ? backTop3 / backRows.length : 0;
+    const frontRate = frontRows.length > 0 ? frontTop3 / frontRows.length : 0;
+    const diff = backRate - frontRate;
+    if (backRows.length >= 3 && diff >= 0.15) driverStyle = "closer";
+    else if (frontRows.length >= 3 && diff <= -0.15) driverStyle = "front";
+    else if ((backRows.length + frontRows.length) >= 4) driverStyle = "versatile";
+  }
+
+  return {
+    backLaneStarts: backRows.length,
+    backLaneWins: backWins,
+    backLaneTop3: backTop3,
+    frontLaneStarts: frontRows.length,
+    frontLaneWins: frontWins,
+    frontLaneTop3: frontTop3,
+    driverStyle,
+    favoriteStarts: favRows.length,
+    favoriteWins: favWins,
+  };
+}
+
 function buildGallopProfile(starts: TravsportStartRow[]) {
   const sample = starts
     .filter((row) => !row.withdrawn && !row.resultCode.startsWith("str"))
@@ -233,6 +285,90 @@ function buildGallopProfile(starts: TravsportStartRow[]) {
   };
 }
 
+/** Normaliserar Travsports trackCondition-strängar till enkla nycklar som matchar ATG:s condition-fält. */
+export function normalizeTrackCondition(raw: string): "light" | "normal" | "heavy" | "winter" {
+  const c = (raw ?? "").toLowerCase();
+  if (c.includes("ltt") || c.includes("lätt") || c === "l" || c === "light") return "light";
+  if (c.includes("tung") || c === "t" || c === "heavy") return "heavy";
+  if (c.includes("vinter") || c.includes("winter") || c.includes("snö") || c.includes("is")) return "winter";
+  return "normal";
+}
+
+function buildSurfaceHistory(completed: TravsportStartRow[]): TravsportSurfaceStat[] {
+  const map = new Map<string, { wins: number; top3: number; starts: number }>();
+  for (const s of completed) {
+    if (!s.trackCondition) continue;
+    const cond = normalizeTrackCondition(s.trackCondition);
+    const e = map.get(cond) ?? { wins: 0, top3: 0, starts: 0 };
+    e.starts++;
+    if (s.placement === 1) e.wins++;
+    if ((s.placement ?? 99) <= 3) e.top3++;
+    map.set(cond, e);
+  }
+  return Array.from(map.entries())
+    .map(([condition, v]) => ({
+      condition,
+      starts: v.starts,
+      wins: v.wins,
+      top3: v.top3,
+      winRate: v.wins / v.starts,
+      top3Rate: v.top3 / v.starts,
+    }))
+    .sort((a, b) => b.starts - a.starts);
+}
+
+function emptyMethodBucket(): TravsportMethodBucket {
+  return { starts: 0, wins: 0, top3: 0, winRate: 0, top3Rate: 0 };
+}
+
+function buildDriverMethodSplit(pairRows: TravsportStartRow[]): TravsportMethodSplit {
+  const auto = emptyMethodBucket();
+  const volt = emptyMethodBucket();
+  for (const row of pairRows) {
+    if (row.placement == null || row.placement <= 0 || row.placement >= 90) continue;
+    const bucket = row.startMethod.toLowerCase().includes("volt") ? volt : auto;
+    bucket.starts++;
+    if (row.placement === 1) bucket.wins++;
+    if (row.placement <= 3) bucket.top3++;
+  }
+  if (auto.starts > 0) { auto.winRate = auto.wins / auto.starts; auto.top3Rate = auto.top3 / auto.starts; }
+  if (volt.starts > 0) { volt.winRate = volt.wins / volt.starts; volt.top3Rate = volt.top3 / volt.starts; }
+  return { auto, volt };
+}
+
+function buildTrainerTrackStats(completed: TravsportStartRow[]): TravsportTrackStat[] {
+  // Filtrera på senaste tränaren (den som förekommer mest i de senaste 12 starterna)
+  const sample = completed.slice(0, 12);
+  const trainerCounts = new Map<number, number>();
+  for (const s of sample) {
+    if (s.trainerId != null) trainerCounts.set(s.trainerId, (trainerCounts.get(s.trainerId) ?? 0) + 1);
+  }
+  const dominantTrainerId = [...trainerCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const trainerRows = dominantTrainerId != null
+    ? completed.filter((s) => s.trainerId === dominantTrainerId)
+    : completed;
+
+  const map = new Map<string, { wins: number; top3: number; starts: number }>();
+  for (const s of trainerRows) {
+    if (!s.trackCode) continue;
+    const e = map.get(s.trackCode) ?? { wins: 0, top3: 0, starts: 0 };
+    e.starts++;
+    if (s.placement === 1) e.wins++;
+    if ((s.placement ?? 99) <= 3) e.top3++;
+    map.set(s.trackCode, e);
+  }
+  return Array.from(map.entries())
+    .map(([trackCode, v]) => ({
+      trackCode,
+      starts: v.starts,
+      wins: v.wins,
+      top3: v.top3,
+      winRate: v.wins / v.starts,
+      top3Rate: v.top3 / v.starts,
+    }))
+    .sort((a, b) => b.starts - a.starts);
+}
+
 export function buildHorseProfile(
   horseId: number,
   rawRows: unknown[],
@@ -256,6 +392,10 @@ export function buildHorseProfile(
     : [];
   const tempoTripProfile = buildTempoTripProfile(completed);
   const gallopProfile = buildGallopProfile(starts);
+  const driverTripProfile = buildDriverTripProfile(pairRows);
+  const surfaceHistory = buildSurfaceHistory(completed);
+  const driverMethodSplit = pairRows.length > 0 ? buildDriverMethodSplit(pairRows) : undefined;
+  const trainerTrackStats = buildTrainerTrackStats(completed);
 
   return {
     horseId,
@@ -268,8 +408,12 @@ export function buildHorseProfile(
     trackWins: trackRows.filter((s) => s.placement === 1).length,
     driverPairStarts: pairRows.length,
     driverPairWins: pairRows.filter((s) => s.placement === 1).length,
+    driverTripProfile,
     tempoTripProfile,
     gallopProfile,
+    surfaceHistory,
+    driverMethodSplit,
+    trainerTrackStats,
   };
 }
 
@@ -287,6 +431,8 @@ export function hydrateHorseProfile(profile: TravsportHorseProfile): TravsportHo
       tripComment: row.tripComment ?? buildTripComment(placement, startPosition, resultCode, withdrawn),
     };
   });
+
+  const completed = starts.filter((s) => s.placement != null && s.placement > 0 && s.placement < 90);
 
   return {
     ...profile,
@@ -306,6 +452,9 @@ export function hydrateHorseProfile(profile: TravsportHorseProfile): TravsportHo
     }),
     tempoTripProfile: profile.tempoTripProfile ?? buildTempoTripProfile(starts),
     gallopProfile: profile.gallopProfile ?? buildGallopProfile(starts),
+    surfaceHistory: profile.surfaceHistory ?? buildSurfaceHistory(completed),
+    trainerTrackStats: profile.trainerTrackStats ?? buildTrainerTrackStats(completed),
+    // driverMethodSplit kräver känd driverId — räknas om vid nästa live-fetch
   };
 }
 

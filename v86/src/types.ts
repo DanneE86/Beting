@@ -2,7 +2,7 @@ import type { TravsportHorseProfile } from "./travsport/types";
 
 /** V85, V86 och Dagens Dubbel (ATG-nyckel `dd`). */
 export type PoolGameType = "V85" | "V86" | "dd";
-export type TravRuleId = "rule1" | "rule2" | "rule3" | "rule4" | "rule5" | "rule6";
+export type TravRuleId = "rule6";
 
 export type TravCoverageGroupId =
   | "horseCore"
@@ -160,6 +160,8 @@ export interface AtgRace {
   scheduledStartTime?: string;
   status?: string;
   date?: string;
+  prize?: string;
+  terms?: string[];
   track?: { id?: number; name?: string; condition?: string };
   starts: AtgStart[];
   result?: {
@@ -199,6 +201,7 @@ export interface ChecklistItemView {
   category: "häst" | "kusk";
   label: string;
   score: number;
+  weight: number;
   available: boolean;
   note: string;
 }
@@ -351,6 +354,8 @@ export interface SnapshotRaceData {
   track?: AtgRace["track"];
   distance?: number;
   startMethod?: string;
+  prize?: string;
+  terms?: string[];
   result?: AtgRace["result"];
   scratchings?: number[];
   pools?: AtgRace["pools"];
@@ -363,6 +368,7 @@ export interface FetchSnapshot {
   legs: LegAnalysis[];
   raceData?: SnapshotRaceData[];
   system: BuiltSystem;
+  systemAlt?: BuiltSystem;
   andelsspel?: AndelsShareTip[];
   expertSignals?: ExpertSignal[];
   expertConsensus?: ExpertConsensusHorse[];

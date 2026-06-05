@@ -43,11 +43,11 @@ type DdCandidateMetrics = {
   rowCount: number;
 };
 
-export const AUTO_MAIN_POOL_BUDGETS_KR = [600, 700, 800, 900, 1000] as const;
-export const AUTO_DD_BUDGETS_KR = [50, 60] as const;
+export const AUTO_MAIN_POOL_BUDGETS_KR = [600, 650, 700, 750, 800, 850, 900, 950, 1000] as const;
+export const AUTO_DD_BUDGETS_KR = [30, 40] as const;
 
 export interface RecommendedMainPoolPlay {
-  budgetKr: (typeof AUTO_MAIN_POOL_BUDGETS_KR)[number];
+  budgetKr: number;
   targetMinPayoutKr: number;
   opennessScore: number;
   reason: string;
@@ -1022,10 +1022,14 @@ function opennessScore(legs: LegAnalysis[]): number {
 }
 
 function preferredBudgetFromOpenness(score: number): (typeof AUTO_MAIN_POOL_BUDGETS_KR)[number] {
-  if (score >= 0.9) return 1000;
-  if (score >= 0.8) return 900;
-  if (score >= 0.7) return 800;
-  if (score >= 0.58) return 700;
+  if (score >= 0.92) return 1000;
+  if (score >= 0.84) return 950;
+  if (score >= 0.76) return 900;
+  if (score >= 0.68) return 850;
+  if (score >= 0.60) return 800;
+  if (score >= 0.52) return 750;
+  if (score >= 0.44) return 700;
+  if (score >= 0.36) return 650;
   return 600;
 }
 
@@ -1284,7 +1288,7 @@ export function recommendDdPlay(
   for (const budgetKr of AUTO_DD_BUDGETS_KR) {
     const pair = buildDdSystemPair(gameId, gameType, legs, { budgetKr, targetMinPayoutKr });
     const metrics = evaluateDdSystem(legs, pair.primary, { budgetKr, targetMinPayoutKr });
-    const score = scoreDdSystem(metrics) - (budgetKr === 60 ? 4 : 0);
+    const score = scoreDdSystem(metrics) - (budgetKr === 40 ? 4 : 0);
     if (!best || score > best.score) best = { budgetKr, system: pair.primary, systemAlt: pair.alternative, metrics, score };
   }
 

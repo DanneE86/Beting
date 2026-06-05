@@ -24,7 +24,7 @@ import {
 } from "../../v86/src/rules";
 
 const TRAV_MODEL_VERSION = 1;
-const RECENT_TRAV_LEARNING_WINDOW = 10;
+const RECENT_TRAV_LEARNING_WINDOW = 30;
 
 function ruleIdFromMeta(meta: unknown): TravRuleId {
   if (!meta || typeof meta !== "object") return DEFAULT_TRAV_RULE_ID;
@@ -578,9 +578,8 @@ Returnera ENDAST JSON med fälten:
 
 export async function getTravLearningPrompt(
   gameType: PoolGameType,
-  ruleId: TravRuleId = DEFAULT_TRAV_RULE_ID,
 ): Promise<string | null> {
-  const scope = travRulePromptScope(gameType, ruleId);
+  const scope = travRulePromptScope(gameType);
   const { data } = await supabaseAdmin
     .from("trav_learning_prompts")
     .select("prompt_text")
@@ -601,7 +600,6 @@ async function findExistingTravPrediction(
   gameId: string,
   gameType: PoolGameType,
   source: SaveTravPredictionOptions["source"],
-  ruleId: TravRuleId,
 ) {
   const { data } = await supabaseAdmin
     .from("trav_predictions")
@@ -609,14 +607,11 @@ async function findExistingTravPrediction(
     .eq("game_id", gameId)
     .eq("game_type", gameType)
     .order("created_at", { ascending: false })
-    .limit(20);
+    .limit(10);
   return (
     data?.find((row) => {
       const meta = (row.meta_json ?? {}) as Record<string, unknown>;
-      return (
-        String(meta.source ?? "live") === (source ?? "live") &&
-        ruleIdFromMeta(meta) === ruleId
-      );
+      return String(meta.source ?? "live") === (source ?? "live");
     })?.id ?? null
   );
 }
@@ -643,8 +638,7 @@ export async function saveTravPrediction(
     };
   }
 
-  const ruleId = ruleIdFromSnapshot(snapshot);
-  const learningPrompt = await getTravLearningPrompt(snapshot.game.type, ruleId).catch(() => null);
+  const learningPrompt = await getTravLearningPrompt(snapshot.game.type).catch(() => null);
   const source = options.source ?? snapshot.meta?.source ?? "live";
   const analysisSavedAt = new Date().toISOString();
   const analysisVersion = options.dedupe ? 1 : await nextTravPredictionVersion(snapshot.game.id, snapshot.game.type);
@@ -704,7 +698,7 @@ export async function saveTravPrediction(
     model_version: TRAV_MODEL_VERSION,
   };
   if (options.dedupe) {
-    const existingId = await findExistingTravPrediction(snapshot.game.id, snapshot.game.type, source, ruleId);
+    const existingId = await findExistingTravPrediction(snapshot.game.id, snapshot.game.type, source);
     if (existingId) {
       const { error } = await supabaseAdmin
         .from("trav_predictions")
@@ -732,7 +726,7 @@ export async function saveTravPrediction(
   return { id: data.id, error: null };
 }
 
-async function resolveTravPredictionRow(
+export async function resolveTravPredictionRow(
   rowId: string,
   snapshot: FetchSnapshot,
   game: AtgGame,
@@ -785,15 +779,14 @@ function topByFrequency(items: string[], limit = 6): string[] {
 
 export async function updateTravLearningPrompt(
   gameType: PoolGameType,
-  ruleId: TravRuleId = DEFAULT_TRAV_RULE_ID,
 ): Promise<string | null> {
-  const scope = travRulePromptScope(gameType, ruleId);
+  const scope = travRulePromptScope(gameType);
   const { data: resolvedRows } = await supabaseAdmin
     .from("trav_predictions")
-    .select("id, meta_json")
+    .select("id")
     .eq("game_type", gameType)
     .not("resolved_at", "is", null);
-  const resolvedCount = (resolvedRows ?? []).filter((row) => ruleIdFromMeta(row.meta_json) === ruleId).length;
+  const resolvedCount = (resolvedRows ?? []).length;
 
   const { data: prev } = await supabaseAdmin
     .from("trav_learning_prompts")
@@ -808,11 +801,9 @@ export async function updateTravLearningPrompt(
     .eq("game_type", gameType)
     .not("resolved_at", "is", null)
     .order("resolved_at", { ascending: false })
-    .limit(RECENT_TRAV_LEARNING_WINDOW * 6);
+    .limit(RECENT_TRAV_LEARNING_WINDOW);
 
-  const scopedRows = (rows ?? [])
-    .filter((row) => ruleIdFromMeta(row.meta_json) === ruleId)
-    .slice(0, RECENT_TRAV_LEARNING_WINDOW);
+  const scopedRows = (rows ?? []).slice(0, RECENT_TRAV_LEARNING_WINDOW);
 
   const lessons = topByFrequency(scopedRows.flatMap((row) => extractLessons(row.postmortem_json)));
 
@@ -843,7 +834,6 @@ export async function updateTravLearningPrompt(
               content: JSON.stringify(
                 {
                   gameType,
-                  ruleId,
                   previousPrompt: prev?.prompt_text ?? "",
                   recentPostmortems: scopedRows,
                   topLessons: lessons,
@@ -912,13 +902,12 @@ export async function resolvePendingTravPredictions(limit = 20) {
       continue;
     }
     resolved++;
-    touched.add(`${row.game_type}:${ruleIdFromSnapshot(snapshot)}`);
+    touched.add(row.game_type);
   }
 
   let promptsUpdated = 0;
-  for (const scope of touched) {
-    const [gameType, ruleId] = scope.split(":") as [PoolGameType, TravRuleId];
-    const prompt = await updateTravLearningPrompt(gameType, normalizeTravRuleId(ruleId));
+  for (const gameType of touched) {
+    const prompt = await updateTravLearningPrompt(gameType as PoolGameType);
     if (prompt) promptsUpdated++;
   }
 
@@ -938,9 +927,73 @@ function* dateRangeDescending(fromDate: string, toDate: string) {
   }
 }
 
+type BacktestRow = {
+  id: string | null;
+  gameId: string;
+  gameType: PoolGameType;
+  gameDate: string | null;
+  correctLegs: number;
+  totalLegs: number;
+  payoutAmountKr: number | null;
+  budgetKr: number;
+  targetMinPayoutKr: number;
+  recommendedBudgetKr?: number | null;
+  recommendedReason?: string | null;
+  summary: string;
+  lessons: string[];
+};
+
+async function loadResolvedBacktestPredictions(
+  gameType: PoolGameType,
+  ruleId: TravRuleId,
+  fromDate: string,
+  toDate: string,
+  budgetKr?: number,
+  targetMinPayoutKr?: number,
+): Promise<Map<string, BacktestRow>> {
+  const { data } = await supabaseAdmin
+    .from("trav_predictions")
+    .select("id, game_id, game_type, game_date, system_json, system_hit_summary, meta_json, postmortem_json")
+    .eq("game_type", gameType)
+    .not("resolved_at", "is", null)
+    .gte("game_date", `${fromDate}T00:00:00`)
+    .lte("game_date", `${toDate}T23:59:59`);
+
+  const map = new Map<string, BacktestRow>();
+  for (const row of data ?? []) {
+    const meta = (row.meta_json ?? {}) as Record<string, unknown>;
+    if (String(meta.source ?? "live") !== "historical-backtest") continue;
+    if (ruleIdFromMeta(meta) !== ruleId) continue;
+
+    const hit = (row.system_hit_summary ?? {}) as TravSystemHitSummary;
+    const system = (row.system_json ?? {}) as { budgetKr?: number; targetMinPayoutKr?: number };
+    const postmortem = (row.postmortem_json ?? {}) as TravPostmortem;
+    const recommendedPlay = (meta.recommendedPlay ?? null) as { budgetKr?: number; reason?: string } | null;
+
+    if (budgetKr != null && system.budgetKr != null && system.budgetKr !== budgetKr) continue;
+    if (targetMinPayoutKr != null && system.targetMinPayoutKr != null && system.targetMinPayoutKr !== targetMinPayoutKr) continue;
+
+    map.set(row.game_id, {
+      id: row.id,
+      gameId: row.game_id,
+      gameType,
+      gameDate: row.game_date ? String(row.game_date).slice(0, 10) : null,
+      correctLegs: hit.correctLegs ?? 0,
+      totalLegs: hit.totalLegs ?? 0,
+      payoutAmountKr: hit.payoutAmountKr ?? null,
+      budgetKr: system.budgetKr ?? 0,
+      targetMinPayoutKr: system.targetMinPayoutKr ?? 0,
+      recommendedBudgetKr: recommendedPlay?.budgetKr ?? null,
+      recommendedReason: recommendedPlay?.reason ?? null,
+      summary: postmortem.summary ?? `${hit.correctLegs ?? 0}/${hit.totalLegs ?? 0} rätt`,
+      lessons: Array.isArray(postmortem.lessons) ? postmortem.lessons.slice(0, 3) : [],
+    });
+  }
+  return map;
+}
+
 export async function backtestTravHistory(input: {
   gameType: PoolGameType;
-  ruleId?: TravRuleId;
   fromDate: string;
   toDate: string;
   maxGames?: number;
@@ -949,21 +1002,17 @@ export async function backtestTravHistory(input: {
   autoBudget?: boolean;
 }) {
   const maxGames = Math.max(1, Math.min(input.maxGames ?? RECENT_TRAV_LEARNING_WINDOW, 200));
-  const rows: Array<{
-    id: string | null;
-    gameId: string;
-    gameType: PoolGameType;
-    gameDate: string | null;
-    correctLegs: number;
-    totalLegs: number;
-    payoutAmountKr: number | null;
-    budgetKr: number;
-    targetMinPayoutKr: number;
-    recommendedBudgetKr?: number | null;
-    recommendedReason?: string | null;
-    summary: string;
-    lessons: string[];
-  }> = [];
+  const ruleId = "rule6" as const;
+  const rows: BacktestRow[] = [];
+
+  const dbCache = await loadResolvedBacktestPredictions(
+    input.gameType,
+    ruleId,
+    input.fromDate,
+    input.toDate,
+    input.autoBudget ? undefined : input.budgetKr,
+    input.autoBudget ? undefined : input.targetMinPayoutKr,
+  );
 
   for (const date of dateRangeDescending(input.fromDate, input.toDate)) {
     if (rows.length >= maxGames) break;
@@ -973,16 +1022,21 @@ export async function backtestTravHistory(input: {
       listAllowedGamesFromCalendar(calendar.games).find((item) => item.type === input.gameType)?.entries ?? [];
     for (const entry of entries) {
       if (rows.length >= maxGames) break;
+
+      const cached = dbCache.get(entry.id);
+      if (cached) {
+        rows.push(cached);
+        continue;
+      }
+
       const fullGame = await fetchGame(entry.id).catch(() => null);
       if (!fullGame || fullGame.status !== "results") continue;
 
       const prematchGame = sanitizeHistoricalGameForPrematch(fullGame);
       const snapshot = await buildSnapshotFromGame(prematchGame, {
-        ruleId: input.ruleId,
         budgetKr: input.budgetKr,
         targetMinPayoutKr: input.targetMinPayoutKr,
         autoBudget: input.autoBudget,
-        includeAndelsspel: false,
         includeTravsport: true,
         travsportDbCache: hybridTravsportCache,
         travsportAllowStaleCache: true,
@@ -1031,7 +1085,7 @@ export async function backtestTravHistory(input: {
   }
 
   if (rows.length > 0) {
-    await updateTravLearningPrompt(input.gameType, normalizeTravRuleId(input.ruleId));
+    await updateTravLearningPrompt(input.gameType);
   }
 
   return {
@@ -1040,23 +1094,20 @@ export async function backtestTravHistory(input: {
     fromDate: input.fromDate,
     toDate: input.toDate,
     gameType: input.gameType,
-    ruleId: normalizeTravRuleId(input.ruleId),
   };
 }
 
 export async function getTravHistory(
   limit = 20,
   gameType?: PoolGameType | null,
-  ruleId?: TravRuleId | null,
 ) {
-  const normalizedRuleId = ruleId ? normalizeTravRuleId(ruleId) : null;
   let query = supabaseAdmin
     .from("trav_predictions")
     .select(
       "id, game_id, game_type, game_date, status, created_at, resolved_at, system_json, legs_json, result_json, payouts_json, winning_numbers_json, system_hit_summary, postmortem_json, analysis_model, learning_prompt, meta_json",
     )
     .order("created_at", { ascending: false })
-    .limit(normalizedRuleId ? Math.max(limit * 6, 60) : limit);
+    .limit(limit);
   if (gameType) query = query.eq("game_type", gameType);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
@@ -1068,7 +1119,6 @@ export async function getTravHistory(
 
   return {
     rows: (data ?? [])
-      .filter((row) => !normalizedRuleId || ruleIdFromMeta(row.meta_json) === normalizedRuleId)
       .slice(0, limit)
       .map((row) => ({
         id: row.id,
@@ -1090,9 +1140,9 @@ export async function getTravHistory(
         meta: row.meta_json,
       })),
     prompts: (prompts ?? []).filter((row) => {
-      if (!gameType && !normalizedRuleId) return true;
-      const [, promptGameType, promptRuleId] = String(row.game_type ?? "").split(":");
-      return (!gameType || promptGameType === gameType) && (!normalizedRuleId || promptRuleId === normalizedRuleId);
+      if (!gameType) return true;
+      const [, promptGameType] = String(row.game_type ?? "").split(":");
+      return promptGameType === gameType;
     }),
   };
 }

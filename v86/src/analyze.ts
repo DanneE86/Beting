@@ -1,7 +1,6 @@
 import { activeStarts, betDistribution, winOdds } from "./atg-api";
 import { scoreStartFull } from "./scoring";
 import type { TravsportIndex } from "./travsport/types";
-import { normalizeTravRuleId } from "./rules";
 import type {
   AtgGame,
   AtgRace,
@@ -10,17 +9,17 @@ import type {
   LegAnalysis,
   PoolGameType,
   ScoredHorse,
-  TravRuleId,
 } from "./types";
 
 function mapChecklist(
-  items: { id: string; category: "häst" | "kusk"; label: string; score: number; available: boolean; note: string }[],
+  items: { id: string; category: "häst" | "kusk"; label: string; score: number; weight: number; available: boolean; note: string }[],
 ): ChecklistItemView[] {
   return items.map((i) => ({
     id: i.id,
     category: i.category,
     label: i.label,
     score: i.score,
+    weight: i.weight,
     available: i.available,
     note: i.note,
   }));
@@ -32,12 +31,11 @@ function scoreStart(
   field: AtgStart[],
   gameType: PoolGameType,
   travsportIndex: TravsportIndex | undefined,
-  ruleId: TravRuleId,
 ): ScoredHorse {
   const bd = betDistribution(start, gameType);
   const winPct = (start.horse?.statistics?.life?.winPercentage ?? 0) / 100;
   const eps = (start.horse?.statistics?.life?.earningsPerStart ?? 0) / 100;
-  const full = scoreStartFull(start, race, field, gameType, travsportIndex, ruleId);
+  const full = scoreStartFull(start, race, field, gameType, travsportIndex);
   const ts = start.horse?.id ? travsportIndex?.[start.horse.id] : undefined;
   const recentKmTimes = ts?.recentStarts
     ?.map((s) => s.kmTime)
@@ -70,6 +68,10 @@ function scoreStart(
     driverChecklist: mapChecklist(full.driverItems),
     isSkrellCandidate,
     recentKmTimes: recentKmTimes.length > 0 ? recentKmTimes : undefined,
+    tempoTripScore: full.tempoTripScore,
+    tempoTripStyle: full.tempoTripStyle,
+    gallopRiskScore: full.gallopRiskScore,
+    gallopRiskLevel: full.gallopRiskLevel,
   };
 }
 
@@ -87,6 +89,27 @@ function buildTipNote(top: ScoredHorse): string {
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+// Empirisk favoritvinst-% per streckbucket (från 365-dagars analys 2025-05-29→2026-05-28).
+// Används för att kalibrera bankabilityScore mot faktiska utfall.
+const EMPIRICAL_WIN_BY_STRECK = [
+  { min: 20, max: 30, winRate: 0.229 },
+  { min: 31, max: 40, winRate: 0.309 },
+  { min: 41, max: 50, winRate: 0.421 },
+  { min: 51, max: 60, winRate: 0.500 },
+  { min: 61, max: 70, winRate: 0.568 },
+  { min: 71, max: 80, winRate: 0.789 },
+  { min: 81, max: 100, winRate: 0.857 },
+] as const;
+
+function empiricalWinRate(streckning: number): number {
+  const bucket = EMPIRICAL_WIN_BY_STRECK.find(
+    (b) => streckning >= b.min && streckning <= b.max,
+  );
+  if (bucket) return bucket.winRate;
+  if (streckning < 20) return 0.15;
+  return 0.90;
 }
 
 function projectedFinishLabel(rank: number, fieldSize: number): string {
@@ -247,11 +270,9 @@ export function analyzeLeg(
   legIndex: number,
   gameType: PoolGameType,
   travsportIndex?: TravsportIndex,
-  ruleId: TravRuleId = "rule6",
 ): LegAnalysis {
-  const normalizedRuleId = normalizeTravRuleId(ruleId);
   const field = activeStarts(race);
-  const rawHorses = field.map((s) => scoreStart(s, race, field, gameType, travsportIndex, normalizedRuleId));
+  const rawHorses = field.map((s) => scoreStart(s, race, field, gameType, travsportIndex));
   const totalCombined = rawHorses.reduce((sum, horse) => sum + Math.max(0.01, horse.combinedScore), 0);
   const fallbackMarketPct = rawHorses.length > 0 ? 100 / rawHorses.length : 0;
   const marketRankByNumber = new Map(
@@ -309,10 +330,17 @@ export function analyzeLeg(
   const secondWinPct = secondModel?.estimatedWinPct ?? 0;
   const modelGap = Math.max(0, topWinPct - secondWinPct);
   const valueDepth = horses.filter((horse) => (horse.valueEdgePct ?? 0) >= 3.5).length;
+  const favoriteIsModelTop = modelTop.number === favorite.number;
+
+  // Kalibrera bankabilityScore mot empirisk favoritvinst-% om marknaden och modellen är eniga
+  const calibratedTopPct = favoriteIsModelTop && favBd >= 20
+    ? (empiricalWinRate(favBd) * 0.55 + topWinPct / 100 * 0.45) * 100
+    : topWinPct;
+
   const bankabilityScore = clamp01(
-    topWinPct / 100 * 0.58 +
+    calibratedTopPct / 100 * 0.58 +
       modelGap / 100 * 1.75 +
-      (modelTop.number === favorite.number ? 0.08 : 0) -
+      (favoriteIsModelTop ? 0.08 : 0) -
       Math.max(0, (favBd - topWinPct) / 100) * 0.22,
   );
   const opennessScore = clamp01(
@@ -331,12 +359,18 @@ export function analyzeLeg(
   }));
 
   const isDd = gameType === "dd";
-  // DD: lägre tröskel → mer aggressiva spikar på 2-loppsfavoriter
-  const spikThreshold = isDd ? 0.58 : 0.72;
+  const spikThreshold = isDd ? 0.58 : 0.68;
   const bredThreshold = isDd ? 0.50 : 0.60;
 
+  const topHasHighGallopRisk = modelTop?.gallopRiskLevel === "hög";
+
+  // Blockera hög galoppfara som spik-kandidat
+  const skrellSpikeFiltered = horses
+    .filter((h) => h.isSkrellCandidate && h.gallopRiskLevel !== "hög")
+    .sort((a, b) => b.valueScore - a.valueScore)[0] ?? null;
+
   let recommendation: LegAnalysis["recommendation"] = "gardering";
-  if (bankabilityScore >= spikThreshold) {
+  if (bankabilityScore >= spikThreshold && !topHasHighGallopRisk) {
     recommendation = "spik";
   } else if (opennessScore >= bredThreshold) {
     recommendation = "bred";
@@ -349,7 +383,7 @@ export function analyzeLeg(
     raceName: race.name,
     horses: enrichedHorses,
     favorite,
-    skrellSpike,
+    skrellSpike: skrellSpikeFiltered,
     recommendation,
     bankabilityScore: Math.round(bankabilityScore * 100) / 100,
     opennessScore: Math.round(opennessScore * 100) / 100,
@@ -361,11 +395,9 @@ export function analyzeLeg(
 export function analyzeGame(
   game: AtgGame,
   travsportIndex?: TravsportIndex,
-  ruleId?: TravRuleId,
 ): LegAnalysis[] {
-  const normalizedRuleId = normalizeTravRuleId(ruleId);
   return game.races.map((race, i) =>
-    analyzeLeg(race, i + 1, game.type, travsportIndex, normalizedRuleId),
+    analyzeLeg(race, i + 1, game.type, travsportIndex),
   );
 }
 

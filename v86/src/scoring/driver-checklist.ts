@@ -58,7 +58,14 @@ export function scoreDriverChecklist(
       : 0.55;
 
   const raceMethod = (race as { startMethod?: string }).startMethod ?? "auto";
-  const methodScore = 0.6;
+  const isVoltRace = raceMethod.toLowerCase().includes("volt");
+  const methodBucket = isVoltRace
+    ? travsport?.driverMethodSplit?.volt
+    : travsport?.driverMethodSplit?.auto;
+  const methodScore =
+    methodBucket && methodBucket.starts >= 3
+      ? Math.min(1, 0.35 + methodBucket.winRate * 1.5)
+      : 0.6;
   const favScore =
     betDistributionPct >= 25
       ? Math.min(1, win26 / 22)
@@ -71,11 +78,59 @@ export function scoreDriverChecklist(
   const pairScore =
     pairStarts > 0 ? Math.min(1, 0.4 + (pairWins / pairStarts) * 1.2) : 0.5;
 
+  // --- Kusk trip-profil: spurter vs framspårare ---
+  const dtp = travsport?.driverTripProfile;
+  const currentPost = (race as { starts?: Array<{ postPosition?: number; number?: number }> })
+    .starts?.find((s) => s.number === start.number)?.postPosition
+    ?? (start.postPosition ?? start.number ?? 5);
+  const isBackLane = currentPost >= 8;
+  const isFrontLane = currentPost <= 4;
+
+  // Spurter-poäng: hur bra klarar kusken bakspår med denna häst?
+  let spurtScore = 0.5;
+  if (dtp && dtp.backLaneStarts >= 2) {
+    const backWinRate = dtp.backLaneWins / dtp.backLaneStarts;
+    const backTop3Rate = dtp.backLaneTop3 / dtp.backLaneStarts;
+    spurtScore = Math.min(1, 0.35 + backWinRate * 0.9 + backTop3Rate * 0.35);
+  }
+
+  // Framspår-poäng
+  let frontScore = 0.5;
+  if (dtp && dtp.frontLaneStarts >= 2) {
+    const frontWinRate = dtp.frontLaneWins / dtp.frontLaneStarts;
+    const frontTop3Rate = dtp.frontLaneTop3 / dtp.frontLaneStarts;
+    frontScore = Math.min(1, 0.35 + frontWinRate * 0.9 + frontTop3Rate * 0.35);
+  }
+
+  // Stil-matchning: ger bonus/malus baserat på om hästens spår matchar kuskens starka sida
+  let stylMatchScore = 0.55;
+  if (dtp && dtp.driverStyle !== "okänd") {
+    if (dtp.driverStyle === "closer" && isBackLane) stylMatchScore = Math.max(spurtScore, 0.70);
+    else if (dtp.driverStyle === "closer" && isFrontLane) stylMatchScore = Math.min(spurtScore, 0.45);
+    else if (dtp.driverStyle === "front" && isFrontLane) stylMatchScore = Math.max(frontScore, 0.70);
+    else if (dtp.driverStyle === "front" && isBackLane) stylMatchScore = Math.min(frontScore, 0.40);
+    else stylMatchScore = 0.62;
+  }
+
+  // Favoritlåverans: hur bra levererar kusken när hästen är hårt streckad?
+  let favDeliveryScore = favScore;
+  if (dtp && dtp.favoriteStarts >= 3) {
+    const favDelivery = dtp.favoriteWins / dtp.favoriteStarts;
+    // Blend: 50% historisk leverans med denna häst, 50% generell kusk-form
+    favDeliveryScore = Math.min(1, favDelivery * 0.5 + favScore * 0.5);
+  }
+
   if (win26 >= 18) highlights.push(`Kusk het (${win26.toFixed(0)}% vinst)`);
   if (sameTeam) highlights.push("Kusk/tränare samma team");
   if (betDistributionPct >= 20 && win26 >= 15) highlights.push("Levererar ofta som favorit");
   if (pairStarts >= 2 && pairWins >= 1)
     highlights.push(`Kusk+häst: ${pairWins}/${pairStarts} (Travsport)`);
+  if (dtp?.driverStyle === "closer" && isBackLane && dtp.backLaneStarts >= 2)
+    highlights.push(`Spurter bakifrån: ${dtp.backLaneWins}/${dtp.backLaneStarts} segrar (spår ${currentPost})`);
+  if (dtp?.driverStyle === "front" && isBackLane && dtp.frontLaneStarts >= 2)
+    highlights.push(`Framspårskusk i yttre spår — sämre matchning (spår ${currentPost})`);
+  if (dtp && dtp.favoriteStarts >= 3 && dtp.favoriteWins / dtp.favoriteStarts >= 0.5 && betDistributionPct >= 30)
+    highlights.push(`Levererar som favorit (${dtp.favoriteWins}/${dtp.favoriteStarts} odds ≤ 2.5)`);
 
   const items: ChecklistItem[] = [
     {
@@ -128,25 +183,45 @@ export function scoreDriverChecklist(
       score: (trackScore + methodScore) / 2,
       weight: 0.7,
       available: !!trackName,
-      note: `${trackName}, ${raceMethod}`,
+      note: (() => {
+        const methodPart = methodBucket && methodBucket.starts >= 3
+          ? `${isVoltRace ? "volt" : "auto"} ${methodBucket.wins}/${methodBucket.starts} (${Math.round(methodBucket.winRate * 100)}%)`
+          : `${raceMethod} (för lite data)`;
+        return `${trackName} · ${methodPart}`;
+      })(),
     },
     {
       id: "driving_style",
       category: "kusk",
-      label: "Körstil",
-      score: 0.5,
-      weight: 0.4,
-      available: false,
-      note: "Ej tillgänglig via API",
+      label: "Körstil (spår-matchning)",
+      score: stylMatchScore,
+      weight: dtp?.driverStyle !== "okänd" ? 1.1 : 0.3,
+      available: dtp != null && dtp.driverStyle !== "okänd",
+      note: dtp
+        ? `${dtp.driverStyle} | spår ${currentPost} | bak ${dtp.backLaneTop3}/${dtp.backLaneStarts} t3, fram ${dtp.frontLaneTop3}/${dtp.frontLaneStarts} t3`
+        : "Körstil ej beräknad (för lite data)",
+    },
+    {
+      id: "spurt_ability",
+      category: "kusk",
+      label: "Spurter/bakifrånförmåga",
+      score: isBackLane ? spurtScore : frontScore,
+      weight: isBackLane ? 1.2 : 0.6,
+      available: dtp != null && (isBackLane ? dtp.backLaneStarts >= 2 : dtp.frontLaneStarts >= 2),
+      note: isBackLane
+        ? `Bakspår (${currentPost}): ${dtp?.backLaneWins ?? 0}/${dtp?.backLaneStarts ?? 0} segrar med kusken`
+        : `Framspår (${currentPost}): ${dtp?.frontLaneWins ?? 0}/${dtp?.frontLaneStarts ?? 0} segrar med kusken`,
     },
     {
       id: "favorite_delivery",
       category: "kusk",
       label: "Som favorit/streckad",
-      score: favScore,
-      weight: betDistributionPct >= 15 ? 1.1 : 0.6,
+      score: favDeliveryScore,
+      weight: betDistributionPct >= 30 ? 1.4 : betDistributionPct >= 15 ? 1.1 : 0.6,
       available: betDistributionPct > 0,
-      note: `${betDistributionPct.toFixed(1)}% av spelet`,
+      note: dtp && dtp.favoriteStarts >= 2
+        ? `${betDistributionPct.toFixed(1)}% streckning | odds≤2.5-hist: ${dtp.favoriteWins}/${dtp.favoriteStarts}`
+        : `${betDistributionPct.toFixed(1)}% av spelet`,
     },
     {
       id: "trainer_pair",

@@ -203,7 +203,7 @@ export async function fetchExpertDataBundle(
   game: AtgGame,
   existingAndelsspel?: AndelsShareTip[],
 ): Promise<ExpertDataBundle> {
-  const baseCoverage = defaultRuleCoverage("rule3");
+  const baseCoverage = defaultRuleCoverage();
   const sourceResults = await Promise.all([
     fetchAtgAndelSource(game, existingAndelsspel),
     Promise.resolve(

@@ -44,6 +44,53 @@ export interface TravsportGallopProfile {
   note: string;
 }
 
+export interface TravsportSurfaceStat {
+  condition: string;
+  starts: number;
+  wins: number;
+  top3: number;
+  winRate: number;
+  top3Rate: number;
+}
+
+export interface TravsportMethodBucket {
+  starts: number;
+  wins: number;
+  top3: number;
+  winRate: number;
+  top3Rate: number;
+}
+
+export interface TravsportMethodSplit {
+  auto: TravsportMethodBucket;
+  volt: TravsportMethodBucket;
+}
+
+export interface TravsportTrackStat {
+  trackCode: string;
+  starts: number;
+  wins: number;
+  top3: number;
+  winRate: number;
+  top3Rate: number;
+}
+
+export interface TravsportDriverTripProfile {
+  /** Starter med denna kusk där hästen startade från spår ≥8 (bakspår) */
+  backLaneStarts: number;
+  backLaneWins: number;
+  backLaneTop3: number;
+  /** Starter med denna kusk där hästen startade från spår 1–4 (framspår) */
+  frontLaneStarts: number;
+  frontLaneWins: number;
+  frontLaneTop3: number;
+  /** "closer" = bättre bakifrån, "front" = bättre framme, "versatile" = jämnt, "okänd" = för lite data */
+  driverStyle: "closer" | "front" | "versatile" | "okänd";
+  /** Leverans som favorit (betDistribution-proxy via odds ≤ 2.5) */
+  favoriteStarts: number;
+  favoriteWins: number;
+}
+
 export interface TravsportHorseProfile {
   horseId: number;
   name?: string;
@@ -57,8 +104,16 @@ export interface TravsportHorseProfile {
   trackStarts: number;
   driverPairStarts: number;
   driverPairWins: number;
+  /** Kuskens trip-profil med denna häst (spurter vs framspårare) */
+  driverTripProfile?: TravsportDriverTripProfile;
   tempoTripProfile: TravsportTempoTripProfile;
   gallopProfile: TravsportGallopProfile;
+  /** Hästens historik per underlagstyp (light/normal/heavy/winter) */
+  surfaceHistory: TravsportSurfaceStat[];
+  /** Kusk+häst-parets prestanda uppdelat på volt vs auto */
+  driverMethodSplit?: TravsportMethodSplit;
+  /** Tränarens banspecifika statistik beräknad från hästens starter */
+  trainerTrackStats: TravsportTrackStat[];
 }
 
 export type TravsportIndex = Record<number, TravsportHorseProfile>;
