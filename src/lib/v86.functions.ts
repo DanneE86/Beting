@@ -122,6 +122,8 @@ export const v86BacktestHistory = createServerFn({ method: "POST" })
       fromDate: string;
       toDate: string;
       maxGames?: number;
+      pageSize?: number;
+      offset?: number;
       budgetKr?: number;
       targetMinPayoutKr?: number;
       autoBudget?: boolean;
@@ -132,6 +134,8 @@ export const v86BacktestHistory = createServerFn({ method: "POST" })
           fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           maxGames: z.number().int().min(1).max(500).optional(),
+          pageSize: z.number().int().min(1).max(50).optional(),
+          offset: z.number().int().min(0).optional(),
           budgetKr: z.number().min(25).max(50_000).optional(),
           targetMinPayoutKr: z.number().min(1_000).max(10_000_000).optional(),
           autoBudget: z.boolean().optional(),

@@ -1003,11 +1003,15 @@ export async function backtestTravHistory(input: {
   fromDate: string;
   toDate: string;
   maxGames?: number;
+  pageSize?: number;
+  offset?: number;
   budgetKr?: number;
   targetMinPayoutKr?: number;
   autoBudget?: boolean;
 }) {
   const maxGames = Math.max(1, Math.min(input.maxGames ?? RECENT_TRAV_LEARNING_WINDOW, 500));
+  const pageSize = Math.max(1, Math.min(input.pageSize ?? maxGames, 50));
+  const offset = Math.max(0, input.offset ?? 0);
   const ruleId = "rule6" as const;
   const rows: BacktestRow[] = [];
 
@@ -1020,14 +1024,19 @@ export async function backtestTravHistory(input: {
     input.autoBudget ? undefined : input.targetMinPayoutKr,
   );
 
+  let gamesSkipped = 0;
   for (const date of dateRangeDescending(input.fromDate, input.toDate)) {
-    if (rows.length >= maxGames) break;
+    if (rows.length >= pageSize) break;
     const calendar = await fetchCalendarDay(date).catch(() => null);
     if (!calendar?.games) continue;
     const entries =
       listAllowedGamesFromCalendar(calendar.games).find((item) => item.type === input.gameType)?.entries ?? [];
     for (const entry of entries) {
-      if (rows.length >= maxGames) break;
+      if (rows.length >= pageSize) break;
+      if (gamesSkipped < offset) {
+        gamesSkipped++;
+        continue;
+      }
 
       const cached = dbCache.get(entry.id);
       if (cached) {
@@ -1090,7 +1099,10 @@ export async function backtestTravHistory(input: {
     }
   }
 
-  if (rows.length > 0) {
+  const hasMore = rows.length >= pageSize;
+
+  // Only update the learning prompt on the final page to avoid redundant AI calls
+  if (rows.length > 0 && !hasMore) {
     await updateTravLearningPrompt(input.gameType);
   }
 
@@ -1100,6 +1112,8 @@ export async function backtestTravHistory(input: {
     fromDate: input.fromDate,
     toDate: input.toDate,
     gameType: input.gameType,
+    hasMore,
+    offset,
   };
 }
 

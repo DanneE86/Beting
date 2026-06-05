@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, Fragment, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useRef, Fragment, type ReactNode } from "react";
 import {
   v86Analyze,
   v86BacktestHistory,
@@ -73,6 +73,7 @@ const DEFAULT_DD_BUDGET_KR = 150;
 const DEFAULT_TRAV_MIN_PAYOUT_KR = 30_000;
 const DEFAULT_DD_MIN_PAYOUT_KR = 1_500;
 const DEFAULT_BACKTEST_GAMES = 50;
+const BACKTEST_PAGE_SIZE = 5;
 
 function formatRowPrice(type: FetchSnapshot["game"]["type"] | GameOption["type"]) {
   const value = rowPriceKr(type);
@@ -316,6 +317,9 @@ export function TravRuleDashboardPage({
   const [backtestToDate, setBacktestToDate] = useState(todayIso());
   const [backtestMaxGames, setBacktestMaxGames] = useState(DEFAULT_BACKTEST_GAMES);
   const [backtestAutoBudget, setBacktestAutoBudget] = useState(true);
+  const [backtestRows, setBacktestRows] = useState<any[]>([]);
+  const [backtestRunning, setBacktestRunning] = useState(false);
+  const backtestSessionRef = useRef<{ maxGames: number; type: string; from: string; to: string; autoBudget: boolean; budgetKr: number; minPayout: number } | null>(null);
 
   const gamesQ = useQuery({
     queryKey: ["v86-games", date],
@@ -407,24 +411,54 @@ export function TravRuleDashboardPage({
   });
 
   const backtestM = useMutation({
-    mutationFn: () =>
-      v86BacktestHistory({
+    mutationFn: ({ offset }: { offset: number }) => {
+      const s = backtestSessionRef.current!;
+      return v86BacktestHistory({
         data: {
-          gameType: backtestType,
-          fromDate: backtestFromDate,
-          toDate: backtestToDate,
-          maxGames: backtestMaxGames,
-          budgetKr: backtestAutoBudget ? undefined : budgetKr,
-          targetMinPayoutKr: backtestAutoBudget ? undefined : minPayout,
-          autoBudget: backtestAutoBudget,
+          gameType: s.type as "V85" | "V86" | "dd",
+          fromDate: s.from,
+          toDate: s.to,
+          maxGames: s.maxGames,
+          pageSize: BACKTEST_PAGE_SIZE,
+          offset,
+          budgetKr: s.autoBudget ? undefined : s.budgetKr,
+          targetMinPayoutKr: s.autoBudget ? undefined : s.minPayout,
+          autoBudget: s.autoBudget,
         },
-      }),
-    onError: (e: Error) => toast.error(e.message),
-    onSuccess: (res) => {
-      toast.success(`Backtest klar: ${res.backtested} omgångar`);
-      queryClient.invalidateQueries({ queryKey: ["trav-history", historyFilterType] });
+      });
+    },
+    onError: (e: Error) => {
+      setBacktestRunning(false);
+      toast.error(e.message);
+    },
+    onSuccess: (res, { offset }) => {
+      setBacktestRows((prev) => [...prev, ...res.rows]);
+      const nextOffset = offset + res.rows.length;
+      const session = backtestSessionRef.current;
+      if (res.hasMore && session && nextOffset < session.maxGames) {
+        backtestM.mutate({ offset: nextOffset });
+      } else {
+        setBacktestRunning(false);
+        queryClient.invalidateQueries({ queryKey: ["trav-history", historyFilterType] });
+        toast.success(`Backtest klar: ${nextOffset} omgångar`);
+      }
     },
   });
+
+  function handleStartBacktest() {
+    backtestSessionRef.current = {
+      maxGames: backtestMaxGames,
+      type: backtestType,
+      from: backtestFromDate,
+      to: backtestToDate,
+      autoBudget: backtestAutoBudget,
+      budgetKr,
+      minPayout,
+    };
+    setBacktestRows([]);
+    setBacktestRunning(true);
+    backtestM.mutate({ offset: 0 });
+  }
 
   const snapshot = analyzeM.data;
   const pool = snapshot?.game.pools?.[snapshot.game.type];
@@ -1402,10 +1436,10 @@ export function TravRuleDashboardPage({
             <div className="flex items-end">
               <Button
                 className="w-full bg-[#1a5c38] text-[#e8f0ea] hover:bg-[#22704a]"
-                onClick={() => backtestM.mutate()}
-                disabled={backtestM.isPending || backtestFromDate > backtestToDate}
+                onClick={handleStartBacktest}
+                disabled={backtestRunning || backtestFromDate > backtestToDate}
               >
-                {backtestM.isPending ? <Loader2 className="animate-spin" /> : <Brain />}
+                {backtestRunning ? <Loader2 className="animate-spin" /> : <Brain />}
                 Kör backtest
               </Button>
             </div>
@@ -1427,9 +1461,16 @@ export function TravRuleDashboardPage({
             </span>
           </label>
 
-          {backtestM.data?.rows?.length ? (
+          {backtestRunning && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-[#7fa892]">
+              <Loader2 className="h-4 w-4 animate-spin text-[#5ec98a]" />
+              Laddar… {backtestRows.length} omgångar hittills
+            </div>
+          )}
+
+          {backtestRows.length > 0 ? (
             <div className="mt-4 grid gap-2 lg:grid-cols-2">
-              {backtestM.data.rows.map((row: any) => (
+              {backtestRows.map((row: any) => (
                 <div
                   key={`backtest-${row.gameId}`}
                   className="rounded border border-[#2d6b45] bg-[#13261c] p-3"
